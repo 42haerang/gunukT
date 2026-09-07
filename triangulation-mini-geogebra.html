@@ -1,0 +1,1735 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>삼각측량 좌표평면</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f4;
+      --surface: #fffefa;
+      --surface-strong: #eef6ee;
+      --text: #17211b;
+      --muted: #5d6a61;
+      --line: #cbd5ce;
+      --line-strong: #8b9890;
+      --axis: #59645e;
+      --green: #248d54;
+      --green-deep: #126239;
+      --blue: #235fba;
+      --amber: #9a6418;
+      --red: #b43737;
+      --button: #ffffff;
+      --button-active: #183e2a;
+      --button-active-text: #ffffff;
+      --shadow: 0 16px 36px rgba(21, 31, 26, 0.12);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #151817;
+        --surface: #202521;
+        --surface-strong: #193025;
+        --text: #eef4ef;
+        --muted: #adbbb2;
+        --line: #39433d;
+        --line-strong: #66736b;
+        --axis: #aeb9b2;
+        --green: #47c77a;
+        --green-deep: #78e6a0;
+        --blue: #75a7ff;
+        --amber: #f0b66a;
+        --red: #ff8b8b;
+        --button: #252b27;
+        --button-active: #8fe0a9;
+        --button-active-text: #102016;
+        --shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 100%;
+    }
+
+    .topbar {
+      display: grid;
+      gap: 12px;
+      padding: 12px 14px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      z-index: 3;
+    }
+
+    .topbar-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: grid;
+      gap: 2px;
+      min-width: 210px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 500;
+    }
+
+    .brand p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .toolbar,
+    .actions,
+    .angle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .tool-button,
+    .action-button {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 12px;
+      background: var(--button);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .tool-button[aria-pressed="true"] {
+      background: var(--button-active);
+      border-color: var(--button-active);
+      color: var(--button-active-text);
+    }
+
+    .tool-stack {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .tool-stack .tool-button {
+      width: 100%;
+    }
+
+    .tool-stack .delete-button {
+      grid-column: 1 / -1;
+      width: 100%;
+    }
+
+    .tool-hint {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .action-button {
+      color: var(--muted);
+    }
+
+    .action-button:hover,
+    .tool-button:hover {
+      border-color: var(--line-strong);
+    }
+
+    .workarea {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      min-height: 0;
+    }
+
+    .canvas-shell {
+      position: relative;
+      min-height: 460px;
+      background: var(--bg);
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      background: transparent;
+    }
+
+    canvas.is-triangle {
+      cursor: crosshair;
+    }
+
+    canvas.is-panning {
+      cursor: grabbing;
+    }
+
+    .status-chip {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      max-width: calc(100% - 28px);
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--surface) 90%, transparent);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+      pointer-events: none;
+    }
+
+    .panel {
+      display: grid;
+      align-content: start;
+      gap: 14px;
+      padding: 14px;
+      background: var(--surface);
+      border-left: 1px solid var(--line);
+      overflow: auto;
+    }
+
+    .panel-section {
+      display: grid;
+      gap: 10px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-section:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .step-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .step-list li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .step-list .mark {
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--surface-strong);
+      color: var(--green-deep);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .step-list li.active {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .step-list li.done .mark {
+      background: var(--green-deep);
+      color: var(--button-active-text);
+    }
+
+    .angle-popover {
+      position: absolute;
+      z-index: 2;
+      width: min(204px, calc(100% - 24px));
+      padding: 12px;
+      border: 1px solid #aeb7b1;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #17211b;
+      box-shadow: 0 10px 24px rgba(21, 31, 26, 0.18);
+    }
+
+    .angle-popover[hidden] {
+      display: none;
+    }
+
+    .coordinate-popover {
+      position: absolute;
+      z-index: 2;
+      width: min(230px, calc(100% - 24px));
+      padding: 9px 10px;
+      border: 1px solid #aeb7b1;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #17211b;
+      box-shadow: 0 8px 20px rgba(21, 31, 26, 0.16);
+      pointer-events: none;
+    }
+
+    .coordinate-popover[hidden] {
+      display: none;
+    }
+
+    .coordinate-popover-label {
+      color: #445148;
+      font-size: 12px;
+    }
+
+    .coordinate-popover-value {
+      margin-top: 2px;
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .measurement-popover {
+      width: min(206px, calc(100% - 24px));
+    }
+
+    .angle-popover-title {
+      margin: 0 0 8px;
+      color: #445148;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .angle-popover .angle-field {
+      display: grid;
+      gap: 4px;
+      color: #445148;
+      font-size: 13px;
+    }
+
+    .angle-popover .angle-field input {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid #aeb7b1;
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #ffffff;
+      color: #17211b;
+    }
+
+    .angle-popover .angle-field input:disabled {
+      opacity: 0.55;
+    }
+
+    .app.is-triangle-mode .angle-popover-title,
+    .app.is-triangle-mode .angle-field-label {
+      display: none;
+    }
+
+    .app.is-triangle-mode .angle-popover {
+      width: min(164px, calc(100% - 24px));
+      padding: 8px;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .message {
+      min-height: 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .message.error {
+      color: var(--red);
+    }
+
+    .message.ready {
+      color: var(--green-deep);
+    }
+
+    .readout {
+      display: grid;
+      gap: 6px;
+      padding: 10px;
+      border-radius: 8px;
+      background: var(--surface-strong);
+    }
+
+    .readout-label {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .readout-value {
+      word-break: break-word;
+      font-variant-numeric: tabular-nums;
+      font-size: 15px;
+    }
+
+    .stats {
+      display: grid;
+      gap: 8px;
+    }
+
+    .stat-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .stat-line strong {
+      color: var(--text);
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+    }
+
+    @media (max-width: 860px) {
+      .workarea {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(420px, 62vh) auto;
+      }
+
+      .panel {
+        border-left: 0;
+        border-top: 1px solid var(--line);
+        max-height: none;
+        overflow: visible;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .topbar {
+        padding: 10px;
+      }
+
+      .topbar-main,
+      .toolbar,
+      .actions {
+        align-items: stretch;
+      }
+
+      .toolbar,
+      .actions {
+        width: 100%;
+      }
+
+      .tool-button,
+      .action-button {
+        flex: 1 1 120px;
+      }
+
+      .brand {
+        min-width: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-main">
+        <div class="brand">
+          <h1>삼각측량 좌표평면</h1>
+          <p>기준선 A(0,0) - B(3,0)</p>
+        </div>
+        <div class="actions">
+          <button class="action-button" id="fitView" type="button">화면 맞춤</button>
+          <button class="action-button" id="clearMap" type="button">초기화</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="workarea">
+      <section class="canvas-shell" aria-label="좌표평면">
+        <canvas id="plane" aria-label="삼각측량 좌표평면"></canvas>
+        <section class="angle-popover" id="alphaPopover" aria-label="첫 번째 기준점 각도 입력" hidden>
+          <p class="angle-popover-title" id="alphaPopoverTitle">∠CAB</p>
+          <label class="angle-field">
+            <span class="angle-field-label">첫 번째 점의 각도</span>
+            <input id="alphaInput" type="number" min="0.0001" max="179.9999" step="0.1" inputmode="decimal" aria-label="첫 번째 점의 각도" disabled>
+          </label>
+        </section>
+        <section class="angle-popover" id="betaPopover" aria-label="두 번째 기준점 각도 입력" hidden>
+          <p class="angle-popover-title" id="betaPopoverTitle">∠CBA</p>
+          <label class="angle-field">
+            <span class="angle-field-label">두 번째 점의 각도</span>
+            <input id="betaInput" type="number" min="0.0001" max="179.9999" step="0.1" inputmode="decimal" aria-label="두 번째 점의 각도" disabled>
+          </label>
+        </section>
+        <div class="coordinate-popover" id="coordinatePopover" aria-live="polite" hidden>
+          <div class="coordinate-popover-label">점 좌표</div>
+          <div class="coordinate-popover-value" id="coordinateReadout">없음</div>
+        </div>
+        <div class="coordinate-popover measurement-popover" id="measurementPopover" aria-live="polite" hidden>
+          <div class="coordinate-popover-label" id="measurementLabel">측정값</div>
+          <div class="coordinate-popover-value" id="measurementReadout">없음</div>
+        </div>
+        <div class="status-chip" id="statusChip" aria-live="polite">이동 모드</div>
+      </section>
+
+      <aside class="panel" aria-label="삼각측량 패널">
+        <section class="panel-section">
+          <h2 class="panel-title">도구</h2>
+          <div class="tool-stack" aria-label="도구 선택">
+            <button class="tool-button" id="moveTool" type="button" aria-pressed="true">이동</button>
+            <button class="tool-button" id="triangleTool" type="button" aria-pressed="false">삼각형 만들기</button>
+            <button class="action-button delete-button" id="deletePoint" type="button" disabled>선택 점 지우기</button>
+          </div>
+          <p class="tool-hint">2회: 길이 · 3회: 첫점-꼭짓점-끝점 각도</p>
+        </section>
+
+        <section class="panel-section">
+          <h2 class="panel-title">진행</h2>
+          <ol class="step-list" id="steps">
+            <li data-step="a" class="active"><span class="mark">1</span><span>첫 번째 점</span></li>
+            <li data-step="b"><span class="mark">2</span><span>두 번째 점</span></li>
+            <li data-step="angles"><span class="mark">3</span><span>각도 입력</span></li>
+            <li data-step="side"><span class="mark">4</span><span>방향 선택</span></li>
+          </ol>
+        </section>
+
+        <section class="panel-section">
+          <h2 class="panel-title">상태</h2>
+          <div class="message" id="triangleMessage" role="status" aria-live="polite">삼각형 만들기를 누르면 시작합니다.</div>
+        </section>
+
+        <section class="panel-section">
+          <h2 class="panel-title">구성</h2>
+          <div class="stats">
+            <div class="stat-line"><span>점</span><strong id="pointCount">2</strong></div>
+            <div class="stat-line"><span>선분</span><strong id="segmentCount">1</strong></div>
+            <div class="stat-line"><span>삼각형</span><strong id="triangleCount">0</strong></div>
+          </div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const app = document.querySelector(".app");
+      const canvas = document.getElementById("plane");
+      const ctx = canvas.getContext("2d");
+      const moveTool = document.getElementById("moveTool");
+      const triangleTool = document.getElementById("triangleTool");
+      const fitViewButton = document.getElementById("fitView");
+      const clearMapButton = document.getElementById("clearMap");
+      const deletePointButton = document.getElementById("deletePoint");
+      const statusChip = document.getElementById("statusChip");
+      const alphaPopover = document.getElementById("alphaPopover");
+      const alphaPopoverTitle = document.getElementById("alphaPopoverTitle");
+      const betaPopover = document.getElementById("betaPopover");
+      const betaPopoverTitle = document.getElementById("betaPopoverTitle");
+      const coordinatePopover = document.getElementById("coordinatePopover");
+      const measurementPopover = document.getElementById("measurementPopover");
+      const measurementLabel = document.getElementById("measurementLabel");
+      const measurementReadout = document.getElementById("measurementReadout");
+      const alphaInput = document.getElementById("alphaInput");
+      const betaInput = document.getElementById("betaInput");
+      const triangleMessage = document.getElementById("triangleMessage");
+      const coordinateReadout = document.getElementById("coordinateReadout");
+      const pointCount = document.getElementById("pointCount");
+      const segmentCount = document.getElementById("segmentCount");
+      const triangleCount = document.getElementById("triangleCount");
+      const stepItems = Array.from(document.querySelectorAll("[data-step]"));
+
+      const state = {
+        mode: "move",
+        points: [],
+        segments: [],
+        triangles: [],
+        nextPointIndex: 2,
+        selectedPointId: null,
+        measurement: freshMeasurementState(),
+        triangle: freshTriangleState(),
+        view: {
+          scale: 100,
+          offsetX: 0,
+          offsetY: 0,
+          initialized: false
+        },
+        pointer: {
+          id: null,
+          dragging: false,
+          moved: false,
+          startX: 0,
+          startY: 0,
+          lastX: 0,
+          lastY: 0
+        },
+        lastMouseWorld: null
+      };
+
+      function freshTriangleState() {
+        return {
+          baseA: null,
+          baseB: null,
+          alpha: null,
+          beta: null,
+          ready: false,
+          previewSide: 1,
+          previewC: null
+        };
+      }
+
+      function freshMeasurementState() {
+        return {
+          stage: null,
+          anchorId: null,
+          firstArmId: null,
+          activeSegmentKeys: [],
+          temporarySegmentKeys: [],
+          value: null
+        };
+      }
+
+      function resetConstruction() {
+        state.points = [
+          { id: "A", x: 0, y: 0 },
+          { id: "B", x: 3, y: 0 }
+        ];
+        state.segments = [];
+        state.triangles = [];
+        state.nextPointIndex = 2;
+        state.selectedPointId = null;
+        state.measurement = freshMeasurementState();
+        addSegment("A", "B");
+        coordinateReadout.textContent = "없음";
+        coordinatePopover.hidden = true;
+        measurementPopover.hidden = true;
+        resetTriangleWorkflow();
+        setMode("move");
+        fitView();
+      }
+
+      function setMode(mode) {
+        const previousCanvasSize = screenSize();
+        clearMeasurement(false);
+        state.mode = mode;
+        app.classList.toggle("is-triangle-mode", mode === "triangle");
+        const nextCanvasSize = screenSize();
+        if (previousCanvasSize.width && previousCanvasSize.height && nextCanvasSize.width && nextCanvasSize.height) {
+          state.view.offsetX += (nextCanvasSize.width - previousCanvasSize.width) / 2;
+          state.view.offsetY += (nextCanvasSize.height - previousCanvasSize.height) / 2;
+        }
+        moveTool.setAttribute("aria-pressed", String(mode === "move"));
+        triangleTool.setAttribute("aria-pressed", String(mode === "triangle"));
+        canvas.classList.toggle("is-triangle", mode === "triangle");
+        if (mode === "triangle") {
+          coordinatePopover.hidden = true;
+          resetTriangleWorkflow();
+          triangleMessage.textContent = "첫 번째 기준점을 선택하세요.";
+          triangleMessage.className = "message";
+        } else {
+          resetTriangleWorkflow();
+          triangleMessage.textContent = "삼각형 만들기를 누르면 시작합니다.";
+          triangleMessage.className = "message";
+          showCoordinatePopover();
+        }
+        updateStatus();
+        updateSteps();
+        resizeCanvas();
+      }
+
+      function resetTriangleWorkflow() {
+        state.triangle = freshTriangleState();
+        alphaInput.value = "";
+        betaInput.value = "";
+        alphaInput.disabled = true;
+        betaInput.disabled = true;
+        alphaPopover.hidden = true;
+        betaPopover.hidden = true;
+        updateSteps();
+      }
+
+      function showAnglePopovers() {
+        const tri = state.triangle;
+        if (!tri.baseA || !tri.baseB) return;
+        alphaPopoverTitle.textContent = `∠C${tri.baseA}${tri.baseB}`;
+        betaPopoverTitle.textContent = `∠C${tri.baseB}${tri.baseA}`;
+        alphaPopover.hidden = false;
+        betaPopover.hidden = false;
+        positionAnglePopovers();
+      }
+
+      function positionAnglePopovers() {
+        const tri = state.triangle;
+        const a = pointById(tri.baseA);
+        const b = pointById(tri.baseB);
+        if (!a || !b) return;
+        positionAdjacentPopover(alphaPopover, a, null, "left");
+        positionAdjacentPopover(betaPopover, b, alphaPopover, "right");
+      }
+
+      function showCoordinatePopover() {
+        const point = pointById(state.selectedPointId);
+        if (!point) {
+          coordinatePopover.hidden = true;
+          return;
+        }
+        coordinateReadout.textContent = `${point.id} = (${formatCoordinate(point.x)}, ${formatCoordinate(point.y)})`;
+        coordinatePopover.hidden = false;
+        positionCoordinatePopover();
+      }
+
+      function positionCoordinatePopover() {
+        const point = pointById(state.selectedPointId);
+        if (coordinatePopover.hidden || !point) return;
+        positionAdjacentPopover(coordinatePopover, point);
+      }
+
+      function positionAdjacentPopover(popover, point, avoidedPopover, preferredSide = "right") {
+        const screen = worldToScreen(point);
+        const canvasSize = screenSize();
+        const panelWidth = popover.offsetWidth;
+        const panelHeight = popover.offsetHeight;
+        const horizontalGap = 30;
+        const verticalGap = 24;
+        const sides = preferredSide === "left" ? [-1, 1] : [1, -1];
+        const candidates = sides.flatMap((side) => {
+          const x = side > 0 ? screen.x + horizontalGap : screen.x - panelWidth - horizontalGap;
+          return [
+            { x, y: screen.y - panelHeight - verticalGap },
+            { x, y: screen.y + verticalGap }
+          ];
+        });
+        const padding = 12;
+        const fitPosition = (position) => ({
+          x: clamp(position.x, padding, Math.max(padding, canvasSize.width - panelWidth - padding)),
+          y: clamp(position.y, padding, Math.max(padding, canvasSize.height - panelHeight - padding))
+        });
+        const score = (position) => {
+          const overflowX = Math.max(0, padding - position.x) + Math.max(0, position.x + panelWidth - (canvasSize.width - padding));
+          const overflowY = Math.max(0, padding - position.y) + Math.max(0, position.y + panelHeight - (canvasSize.height - padding));
+          const fitted = fitPosition(position);
+          const rectangle = {
+            left: fitted.x,
+            top: fitted.y,
+            right: fitted.x + panelWidth,
+            bottom: fitted.y + panelHeight
+          };
+          const overlapsSegment = state.segments.some((segment) => {
+            const start = pointById(segment.a);
+            const end = pointById(segment.b);
+            return start && end && segmentIntersectsRect(worldToScreen(start), worldToScreen(end), rectangle);
+          });
+          const overlapsPopover = avoidedPopover && !avoidedPopover.hidden && rectanglesOverlap(rectangle, {
+            left: avoidedPopover.offsetLeft,
+            top: avoidedPopover.offsetTop,
+            right: avoidedPopover.offsetLeft + avoidedPopover.offsetWidth,
+            bottom: avoidedPopover.offsetTop + avoidedPopover.offsetHeight
+          });
+          return overflowX + overflowY + (overlapsSegment ? 500 : 0) + (overlapsPopover ? 700 : 0);
+        };
+        const preferred = candidates.sort((first, second) => score(first) - score(second))[0];
+        const fitted = fitPosition(preferred);
+        popover.style.left = `${fitted.x}px`;
+        popover.style.top = `${fitted.y}px`;
+      }
+
+      function rectanglesOverlap(first, second) {
+        return first.left < second.right && first.right > second.left && first.top < second.bottom && first.bottom > second.top;
+      }
+
+      function segmentIntersectsRect(start, end, rectangle) {
+        if (pointInRect(start, rectangle) || pointInRect(end, rectangle)) return true;
+        const corners = [
+          { x: rectangle.left, y: rectangle.top },
+          { x: rectangle.right, y: rectangle.top },
+          { x: rectangle.right, y: rectangle.bottom },
+          { x: rectangle.left, y: rectangle.bottom }
+        ];
+        return corners.some((corner, index) => segmentsIntersect(start, end, corner, corners[(index + 1) % corners.length]));
+      }
+
+      function pointInRect(point, rectangle) {
+        return point.x >= rectangle.left && point.x <= rectangle.right && point.y >= rectangle.top && point.y <= rectangle.bottom;
+      }
+
+      function segmentsIntersect(firstStart, firstEnd, secondStart, secondEnd) {
+        const cross = (origin, first, second) => (first.x - origin.x) * (second.y - origin.y) - (first.y - origin.y) * (second.x - origin.x);
+        const firstA = cross(firstStart, firstEnd, secondStart);
+        const firstB = cross(firstStart, firstEnd, secondEnd);
+        const secondA = cross(secondStart, secondEnd, firstStart);
+        const secondB = cross(secondStart, secondEnd, firstEnd);
+        return ((firstA >= 0 && firstB <= 0) || (firstA <= 0 && firstB >= 0)) && ((secondA >= 0 && secondB <= 0) || (secondA <= 0 && secondB >= 0));
+      }
+
+      function selectPoint(point) {
+        state.selectedPointId = point.id;
+        showCoordinatePopover();
+      }
+
+      function clearMeasurement(redraw = true) {
+        const measurement = state.measurement;
+        if (measurement.temporarySegmentKeys.length) {
+          const temporaryKeys = new Set(measurement.temporarySegmentKeys);
+          state.segments = state.segments.filter((segment) => !temporaryKeys.has(segment.key));
+        }
+        state.measurement = freshMeasurementState();
+        measurementPopover.hidden = true;
+        if (redraw) draw();
+      }
+
+      function beginLengthMeasurement(point) {
+        clearMeasurement(false);
+        state.selectedPointId = null;
+        coordinatePopover.hidden = true;
+        state.measurement.stage = "length-start";
+        state.measurement.anchorId = point.id;
+        updateStatus(`${point.id}에서 다른 점을 선택하세요.`);
+        draw();
+      }
+
+      function beginAngleMeasurement(point) {
+        clearMeasurement(false);
+        state.selectedPointId = null;
+        coordinatePopover.hidden = true;
+        state.measurement.stage = "angle-vertex";
+        state.measurement.firstArmId = point.id;
+        updateStatus(`${point.id} 다음에 꼭짓점 점을 선택하세요.`);
+        draw();
+      }
+
+      function addMeasurementSegment(firstId, secondId) {
+        const key = [firstId, secondId].sort().join("|");
+        let segment = state.segments.find((candidate) => candidate.key === key);
+        if (!segment) {
+          segment = addSegment(firstId, secondId, true);
+          state.measurement.temporarySegmentKeys.push(segment.key);
+        }
+        if (!state.measurement.activeSegmentKeys.includes(segment.key)) {
+          state.measurement.activeSegmentKeys.push(segment.key);
+        }
+      }
+
+      function completeLengthMeasurement(point) {
+        const measurement = state.measurement;
+        if (point.id === measurement.anchorId) return;
+        const anchor = pointById(measurement.anchorId);
+        if (!anchor) return;
+        addMeasurementSegment(anchor.id, point.id);
+        measurement.stage = "length-display";
+        measurement.value = Math.hypot(point.x - anchor.x, point.y - anchor.y);
+        showMeasurementPopover({
+          x: (anchor.x + point.x) / 2,
+          y: (anchor.y + point.y) / 2
+        }, "선분 길이", formatMeasurement(measurement.value));
+        updateStatus("선분 길이 측정");
+        draw();
+      }
+
+      function selectAngleArm(point) {
+        const measurement = state.measurement;
+        if (measurement.stage === "angle-vertex") {
+          if (point.id === measurement.firstArmId) return;
+          const firstArm = pointById(measurement.firstArmId);
+          if (!firstArm) return;
+          measurement.anchorId = point.id;
+          addMeasurementSegment(point.id, firstArm.id);
+          measurement.stage = "angle-second";
+          updateStatus("마지막 점을 선택하세요.");
+          draw();
+          return;
+        }
+
+        const vertex = pointById(measurement.anchorId);
+        if (!vertex || measurement.stage !== "angle-second" || point.id === measurement.firstArmId || point.id === vertex.id) return;
+        const firstArm = pointById(measurement.firstArmId);
+        if (!firstArm) return;
+        addMeasurementSegment(vertex.id, point.id);
+        const firstAngle = Math.atan2(firstArm.y - vertex.y, firstArm.x - vertex.x);
+        const secondAngle = Math.atan2(point.y - vertex.y, point.x - vertex.x);
+        const difference = Math.abs(((secondAngle - firstAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+        measurement.stage = "angle-display";
+        measurement.value = difference * 180 / Math.PI;
+        showMeasurementPopover(vertex, "각도", `${formatMeasurement(measurement.value)}°`);
+        updateStatus("각도 측정");
+        draw();
+      }
+
+      function showMeasurementPopover(anchor, label, value) {
+        measurementLabel.textContent = label;
+        measurementReadout.textContent = value;
+        measurementPopover.hidden = false;
+        positionAdjacentPopover(measurementPopover, anchor, coordinatePopover);
+      }
+
+      function positionMeasurementPopover() {
+        const measurement = state.measurement;
+        if (measurementPopover.hidden) return;
+        if (measurement.stage === "length-display") {
+          const anchor = pointById(measurement.anchorId);
+          const otherId = measurement.activeSegmentKeys
+            .map((key) => key.split("|").find((id) => id !== measurement.anchorId))
+            .find(Boolean);
+          const other = pointById(otherId);
+          if (anchor && other) {
+            positionAdjacentPopover(measurementPopover, {
+              x: (anchor.x + other.x) / 2,
+              y: (anchor.y + other.y) / 2
+            }, coordinatePopover);
+          }
+        } else if (measurement.stage === "angle-display") {
+          const vertex = pointById(measurement.anchorId);
+          if (vertex) positionAdjacentPopover(measurementPopover, vertex, coordinatePopover);
+        }
+      }
+
+      function formatMeasurement(value) {
+        return trimZeros(value.toFixed(6));
+      }
+
+      function deleteSelectedPoint() {
+        if (state.mode !== "move") return;
+        const point = pointById(state.selectedPointId);
+        if (!point) return;
+
+        state.points = state.points.filter((candidate) => candidate.id !== point.id);
+        state.segments = state.segments.filter((segment) => segment.a !== point.id && segment.b !== point.id);
+        state.triangles = state.triangles.filter((triangle) => triangle.a !== point.id && triangle.b !== point.id && triangle.c !== point.id);
+        state.selectedPointId = null;
+        coordinateReadout.textContent = "없음";
+        coordinatePopover.hidden = true;
+        updateStatus(`${point.id} 삭제`);
+        draw();
+      }
+
+      function updateDeletePointButton() {
+        deletePointButton.disabled = state.mode !== "move" || !state.selectedPointId;
+      }
+
+      function pointById(id) {
+        return state.points.find((point) => point.id === id);
+      }
+
+      function nextPointName(index) {
+        let n = index;
+        let name = "";
+        do {
+          name = String.fromCharCode(65 + (n % 26)) + name;
+          n = Math.floor(n / 26) - 1;
+        } while (n >= 0);
+        return name;
+      }
+
+      function addSegment(a, b, temporary = false) {
+        if (a === b) return;
+        const key = [a, b].sort().join("|");
+        const existing = state.segments.find((segment) => segment.key === key);
+        if (existing) return existing;
+        const segment = { a, b, key, temporary };
+        state.segments.push(segment);
+        return segment;
+      }
+
+      function updateCounts() {
+        pointCount.textContent = String(state.points.length);
+        segmentCount.textContent = String(state.segments.length);
+        triangleCount.textContent = String(state.triangles.length);
+      }
+
+      function resizeCanvas() {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.round(rect.width * dpr));
+        canvas.height = Math.max(1, Math.round(rect.height * dpr));
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        if (!state.view.initialized) {
+          state.view.initialized = true;
+          fitView();
+        } else {
+          draw();
+        }
+        positionAnglePopovers();
+        positionCoordinatePopover();
+        positionMeasurementPopover();
+      }
+
+      function screenSize() {
+        const rect = canvas.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      }
+
+      function worldToScreen(point) {
+        return {
+          x: point.x * state.view.scale + state.view.offsetX,
+          y: state.view.offsetY - point.y * state.view.scale
+        };
+      }
+
+      function screenToWorld(point) {
+        return {
+          x: (point.x - state.view.offsetX) / state.view.scale,
+          y: (state.view.offsetY - point.y) / state.view.scale
+        };
+      }
+
+      function cssColor(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      }
+
+      function rgbaFromHex(hex, alpha) {
+        const clean = hex.replace("#", "");
+        const value = clean.length === 3
+          ? clean.split("").map((char) => char + char).join("")
+          : clean;
+        const r = parseInt(value.slice(0, 2), 16);
+        const g = parseInt(value.slice(2, 4), 16);
+        const b = parseInt(value.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      }
+
+      function draw() {
+        const { width, height } = screenSize();
+        ctx.clearRect(0, 0, width, height);
+
+        drawTriangleFills();
+        drawPreviewFill();
+        drawGrid();
+        drawMeasurementAngle();
+        drawSegments();
+        drawPreviewLines();
+        drawPoints();
+        drawPreviewPoint();
+        updateCounts();
+        updateDeletePointButton();
+      }
+
+      function drawTriangleFills() {
+        const fill = rgbaFromHex(cssColor("--green"), 0.2);
+        for (const triangle of state.triangles) {
+          const a = pointById(triangle.a);
+          const b = pointById(triangle.b);
+          const c = pointById(triangle.c);
+          if (!a || !b || !c) continue;
+          drawPolygon([a, b, c], fill);
+        }
+      }
+
+      function drawPreviewFill() {
+        const tri = state.triangle;
+        if (state.mode !== "triangle" || !tri.ready || !tri.previewC) return;
+        const a = pointById(tri.baseA);
+        const b = pointById(tri.baseB);
+        if (!a || !b) return;
+        drawPolygon([a, b, tri.previewC], rgbaFromHex(cssColor("--green"), 0.1));
+      }
+
+      function drawPolygon(points, fillStyle) {
+        ctx.beginPath();
+        points.forEach((point, index) => {
+          const screen = worldToScreen(point);
+          if (index === 0) ctx.moveTo(screen.x, screen.y);
+          else ctx.lineTo(screen.x, screen.y);
+        });
+        ctx.closePath();
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+      }
+
+      function drawGrid() {
+        const { width, height } = screenSize();
+        const gridColor = cssColor("--line");
+        const strongGridColor = cssColor("--line-strong");
+        const axisColor = cssColor("--axis");
+        const minPx = 54;
+        const step = niceStep(minPx / state.view.scale);
+        const minorStep = step / 5;
+        const topLeft = screenToWorld({ x: 0, y: 0 });
+        const bottomRight = screenToWorld({ x: width, y: height });
+        const minX = Math.min(topLeft.x, bottomRight.x);
+        const maxX = Math.max(topLeft.x, bottomRight.x);
+        const minY = Math.min(topLeft.y, bottomRight.y);
+        const maxY = Math.max(topLeft.y, bottomRight.y);
+
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgbaFromHex(gridColor, 0.55);
+        drawGridLines(minX, maxX, minY, maxY, minorStep, width, height);
+
+        ctx.strokeStyle = strongGridColor;
+        drawGridLines(minX, maxX, minY, maxY, step, width, height);
+
+        ctx.strokeStyle = axisColor;
+        ctx.lineWidth = 1.5;
+        const xAxis = worldToScreen({ x: 0, y: 0 }).y;
+        const yAxis = worldToScreen({ x: 0, y: 0 }).x;
+        if (xAxis >= 0 && xAxis <= height) drawLine({ x: 0, y: xAxis }, { x: width, y: xAxis });
+        if (yAxis >= 0 && yAxis <= width) drawLine({ x: yAxis, y: 0 }, { x: yAxis, y: height });
+
+        drawAxisLabels(minX, maxX, minY, maxY, step, width, height);
+      }
+
+      function drawGridLines(minX, maxX, minY, maxY, step, width, height) {
+        const startX = Math.floor(minX / step) * step;
+        const endX = Math.ceil(maxX / step) * step;
+        const startY = Math.floor(minY / step) * step;
+        const endY = Math.ceil(maxY / step) * step;
+
+        for (let x = startX; x <= endX + step * 0.5; x += step) {
+          const screen = worldToScreen({ x, y: 0 });
+          drawLine({ x: screen.x, y: 0 }, { x: screen.x, y: height });
+        }
+
+        for (let y = startY; y <= endY + step * 0.5; y += step) {
+          const screen = worldToScreen({ x: 0, y });
+          drawLine({ x: 0, y: screen.y }, { x: width, y: screen.y });
+        }
+      }
+
+      function drawAxisLabels(minX, maxX, minY, maxY, step, width, height) {
+        const axisColor = cssColor("--axis");
+        const yAxisX = clamp(worldToScreen({ x: 0, y: 0 }).x, 4, width - 38);
+        const xAxisY = clamp(worldToScreen({ x: 0, y: 0 }).y, 16, height - 6);
+        ctx.fillStyle = axisColor;
+        ctx.font = "12px system-ui, sans-serif";
+        ctx.textBaseline = "middle";
+
+        const startX = Math.floor(minX / step) * step;
+        const endX = Math.ceil(maxX / step) * step;
+        for (let x = startX; x <= endX + step * 0.5; x += step) {
+          if (Math.abs(x) < step * 0.001) continue;
+          const screen = worldToScreen({ x, y: 0 });
+          if (screen.x < 4 || screen.x > width - 24) continue;
+          ctx.textAlign = "center";
+          ctx.fillText(formatGridNumber(x), screen.x, xAxisY);
+        }
+
+        const startY = Math.floor(minY / step) * step;
+        const endY = Math.ceil(maxY / step) * step;
+        for (let y = startY; y <= endY + step * 0.5; y += step) {
+          if (Math.abs(y) < step * 0.001) continue;
+          const screen = worldToScreen({ x: 0, y });
+          if (screen.y < 10 || screen.y > height - 10) continue;
+          ctx.textAlign = "left";
+          ctx.fillText(formatGridNumber(y), yAxisX + 6, screen.y);
+        }
+
+        ctx.fillStyle = cssColor("--muted");
+        ctx.textAlign = "left";
+        ctx.fillText(`1칸 = ${formatGridNumber(step)}`, 12, 18);
+      }
+
+      function niceStep(raw) {
+        const exponent = Math.floor(Math.log10(raw || 1));
+        const base = Math.pow(10, exponent);
+        const fraction = raw / base;
+        let nice = 1;
+        if (fraction > 5) nice = 10;
+        else if (fraction > 2) nice = 5;
+        else if (fraction > 1) nice = 2;
+        return nice * base;
+      }
+
+      function formatGridNumber(value) {
+        const abs = Math.abs(value);
+        if (abs >= 1000 || abs < 0.001) return value.toExponential(0);
+        if (abs >= 10) return value.toFixed(0);
+        if (abs >= 1) return trimZeros(value.toFixed(1));
+        return trimZeros(value.toFixed(3));
+      }
+
+      function trimZeros(text) {
+        return text.replace(/\.?0+$/, "");
+      }
+
+      function drawSegments() {
+        const lineColor = cssColor("--green-deep");
+        const baseColor = cssColor("--axis");
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        for (const segment of state.segments) {
+          const a = pointById(segment.a);
+          const b = pointById(segment.b);
+          if (!a || !b) continue;
+          const screenA = worldToScreen(a);
+          const screenB = worldToScreen(b);
+          const isMeasured = state.measurement.activeSegmentKeys.includes(segment.key);
+          ctx.strokeStyle = isMeasured ? cssColor("--blue") : (segment.key === "A|B" ? baseColor : lineColor);
+          ctx.lineWidth = isMeasured ? 3 : (segment.key === "A|B" ? 2.4 : 2);
+          drawLine(screenA, screenB);
+        }
+      }
+
+      function drawMeasurementAngle() {
+        const measurement = state.measurement;
+        if (measurement.stage !== "angle-display") return;
+        const vertex = pointById(measurement.anchorId);
+        const firstArm = pointById(measurement.firstArmId);
+        const secondArmId = state.measurement.activeSegmentKeys
+          .map((key) => key.split("|").find((id) => id !== measurement.anchorId))
+          .find((id) => id && id !== measurement.firstArmId);
+        const secondArm = pointById(secondArmId);
+        if (!vertex || !firstArm || !secondArm) return;
+
+        const center = worldToScreen(vertex);
+        const first = worldToScreen(firstArm);
+        const second = worldToScreen(secondArm);
+        const startAngle = Math.atan2(first.y - center.y, first.x - center.x);
+        const endAngle = Math.atan2(second.y - center.y, second.x - center.x);
+        const normalize = (angle) => (angle + Math.PI * 2) % (Math.PI * 2);
+        const clockwise = normalize(endAngle - startAngle);
+        const anticlockwise = clockwise > Math.PI;
+        const radius = 26;
+
+        ctx.beginPath();
+        ctx.moveTo(center.x, center.y);
+        ctx.arc(center.x, center.y, radius, startAngle, endAngle, anticlockwise);
+        ctx.closePath();
+        ctx.fillStyle = rgbaFromHex(cssColor("--blue"), 0.22);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, startAngle, endAngle, anticlockwise);
+        ctx.strokeStyle = rgbaFromHex(cssColor("--blue"), 0.85);
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
+
+      function drawPreviewLines() {
+        const tri = state.triangle;
+        if (state.mode !== "triangle" || !tri.ready || !tri.previewC) return;
+        const a = pointById(tri.baseA);
+        const b = pointById(tri.baseB);
+        if (!a || !b) return;
+        ctx.strokeStyle = rgbaFromHex(cssColor("--green-deep"), 0.38);
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 7]);
+        drawLine(worldToScreen(a), worldToScreen(tri.previewC));
+        drawLine(worldToScreen(b), worldToScreen(tri.previewC));
+        ctx.setLineDash([]);
+      }
+
+      function drawLine(a, b) {
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+
+      function drawPoints() {
+        for (const point of state.points) {
+          const screen = worldToScreen(point);
+          const isRoleA = state.triangle.baseA === point.id;
+          const isRoleB = state.triangle.baseB === point.id;
+          const selected = state.selectedPointId === point.id || isRoleA || isRoleB || isMeasurementPoint(point.id);
+
+          ctx.beginPath();
+          ctx.arc(screen.x, screen.y, selected ? 7 : 6, 0, Math.PI * 2);
+          ctx.fillStyle = selected ? cssColor("--blue") : cssColor("--surface");
+          ctx.strokeStyle = selected ? cssColor("--blue") : cssColor("--green-deep");
+          ctx.lineWidth = selected ? 2.5 : 2;
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = cssColor("--text");
+          ctx.font = "500 13px system-ui, sans-serif";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(point.id, screen.x + 9, screen.y - 9);
+        }
+      }
+
+      function isMeasurementPoint(pointId) {
+        const measurement = state.measurement;
+        if (measurement.anchorId === pointId || measurement.firstArmId === pointId) return true;
+        return measurement.activeSegmentKeys.some((key) => key.split("|").includes(pointId));
+      }
+
+      function drawPreviewPoint() {
+        const tri = state.triangle;
+        if (state.mode !== "triangle" || !tri.ready || !tri.previewC) return;
+        const screen = worldToScreen(tri.previewC);
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = rgbaFromHex(cssColor("--surface") || "#ffffff", 0.45);
+        ctx.strokeStyle = rgbaFromHex(cssColor("--green-deep"), 0.42);
+        ctx.lineWidth = 2;
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = rgbaFromHex(cssColor("--text"), 0.48);
+        ctx.font = "500 13px system-ui, sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(nextPointName(state.nextPointIndex), screen.x + 9, screen.y - 9);
+      }
+
+      function fitView() {
+        if (state.points.length <= 2) {
+          const { width, height } = screenSize();
+          if (!width || !height) return;
+          state.view.scale = 80;
+          state.view.offsetX = width / 2 - 1.5 * state.view.scale;
+          state.view.offsetY = height / 2;
+          draw();
+          return;
+        }
+        const xs = state.points.map((point) => point.x);
+        const ys = state.points.map((point) => point.y);
+        fitWorldBounds(
+          Math.min(...xs, 0),
+          Math.max(...xs, 3),
+          Math.min(...ys, -1),
+          Math.max(...ys, 1),
+          3.8,
+          2.8
+        );
+      }
+
+      function fitWorldPoints(points, minSpanX = 3.8, minSpanY = 2.8) {
+        const xs = points.map((point) => point.x);
+        const ys = points.map((point) => point.y);
+        fitWorldBounds(Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys), minSpanX, minSpanY);
+      }
+
+      function fitWorldBounds(minX, maxX, minY, maxY, minSpanX, minSpanY) {
+        const { width, height } = screenSize();
+        if (!width || !height) return;
+        const spanX = Math.max(minSpanX, maxX - minX);
+        const spanY = Math.max(minSpanY, maxY - minY);
+        const padding = width < 520 ? 48 : 72;
+        const scaleX = (width - padding * 2) / spanX;
+        const scaleY = (height - padding * 2) / spanY;
+        state.view.scale = clamp(Math.min(scaleX, scaleY), 4, 180);
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+        state.view.offsetX = width / 2 - centerX * state.view.scale;
+        state.view.offsetY = height / 2 + centerY * state.view.scale;
+        draw();
+      }
+
+      function ensureWorldPointsVisible(points) {
+        const { width, height } = screenSize();
+        const margin = width < 520 ? 44 : 64;
+        const visible = points.every((point) => {
+          const screen = worldToScreen(point);
+          return screen.x >= margin
+            && screen.x <= width - margin
+            && screen.y >= margin
+            && screen.y <= height - margin;
+        });
+        if (!visible) fitWorldPoints(points);
+      }
+
+      function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+      }
+
+      function canvasPoint(event) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top
+        };
+      }
+
+      function hitPoint(screenPoint) {
+        let nearest = null;
+        let nearestDistance = Infinity;
+        for (const point of state.points) {
+          const screen = worldToScreen(point);
+          const distance = Math.hypot(screen.x - screenPoint.x, screen.y - screenPoint.y);
+          if (distance < nearestDistance) {
+            nearest = point;
+            nearestDistance = distance;
+          }
+        }
+        return nearestDistance <= 13 ? nearest : null;
+      }
+
+      function handleMovePointClick(point) {
+        const measurement = state.measurement;
+        if (measurement.stage === "length-start") {
+          completeLengthMeasurement(point);
+          return;
+        }
+        if (measurement.stage === "angle-vertex" || measurement.stage === "angle-second") {
+          selectAngleArm(point);
+          return;
+        }
+        if (measurement.stage === "length-display" || measurement.stage === "angle-display") {
+          clearMeasurement(false);
+        }
+
+        selectPoint(point);
+        updateStatus(`${point.id} 좌표 표시`);
+        draw();
+      }
+
+      function handlePointerDown(event) {
+        const screen = canvasPoint(event);
+        state.pointer.id = event.pointerId;
+        state.pointer.startX = screen.x;
+        state.pointer.startY = screen.y;
+        state.pointer.lastX = screen.x;
+        state.pointer.lastY = screen.y;
+        state.pointer.moved = false;
+
+        if (state.mode === "triangle") {
+          handleTriangleClick(screen);
+          return;
+        }
+
+        const point = hitPoint(screen);
+        if (point) {
+          handleMovePointClick(point);
+          return;
+        }
+
+        clearMeasurement(false);
+        state.selectedPointId = null;
+        coordinateReadout.textContent = "없음";
+        coordinatePopover.hidden = true;
+        state.pointer.dragging = true;
+        canvas.classList.add("is-panning");
+        canvas.setPointerCapture(event.pointerId);
+        draw();
+      }
+
+      function handlePointerMove(event) {
+        const screen = canvasPoint(event);
+        state.lastMouseWorld = screenToWorld(screen);
+
+        if (state.mode === "triangle") {
+          updatePreviewFromScreen(screen);
+          return;
+        }
+
+        if (!state.pointer.dragging || state.pointer.id !== event.pointerId) return;
+        const dx = screen.x - state.pointer.lastX;
+        const dy = screen.y - state.pointer.lastY;
+        if (Math.hypot(screen.x - state.pointer.startX, screen.y - state.pointer.startY) > 3) {
+          state.pointer.moved = true;
+        }
+        state.view.offsetX += dx;
+        state.view.offsetY += dy;
+        state.pointer.lastX = screen.x;
+        state.pointer.lastY = screen.y;
+        updateStatus("화면 이동 중");
+        positionCoordinatePopover();
+        positionMeasurementPopover();
+        draw();
+      }
+
+      function handlePointerUp(event) {
+        if (state.pointer.id === event.pointerId) {
+          state.pointer.dragging = false;
+          state.pointer.id = null;
+          canvas.classList.remove("is-panning");
+          if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+          updateStatus();
+        }
+      }
+
+      function handleCanvasDoubleClick(event) {
+        if (state.mode !== "move") return;
+        const point = hitPoint(canvasPoint(event));
+        if (point) beginLengthMeasurement(point);
+      }
+
+      function handleCanvasClick(event) {
+        if (state.mode !== "move" || event.detail !== 3) return;
+        const point = hitPoint(canvasPoint(event));
+        if (point) beginAngleMeasurement(point);
+      }
+
+      function handleWheel(event) {
+        event.preventDefault();
+        const screen = canvasPoint(event);
+        const before = screenToWorld(screen);
+        const zoom = Math.exp(-event.deltaY * 0.0012);
+        state.view.scale = clamp(state.view.scale * zoom, 4, 900);
+        state.view.offsetX = screen.x - before.x * state.view.scale;
+        state.view.offsetY = screen.y + before.y * state.view.scale;
+        updateStatus(`확대율 ${Math.round(state.view.scale)} px/unit`);
+        positionAnglePopovers();
+        positionCoordinatePopover();
+        positionMeasurementPopover();
+        draw();
+      }
+
+      function handleTriangleClick(screen) {
+        const tri = state.triangle;
+        if (tri.ready && tri.previewC) {
+          confirmPreviewTriangle();
+          return;
+        }
+
+        const point = hitPoint(screen);
+        if (!point) return;
+
+        if (!tri.baseA) {
+          tri.baseA = point.id;
+          triangleMessage.textContent = "두 번째 기준점을 선택하세요.";
+          triangleMessage.className = "message";
+          updateStatus(`${point.id} 선택`);
+        } else if (!tri.baseB) {
+          if (point.id === tri.baseA) {
+            triangleMessage.textContent = "서로 다른 두 점을 선택해야 합니다.";
+            triangleMessage.className = "message error";
+          } else {
+            tri.baseB = point.id;
+            alphaInput.disabled = false;
+            betaInput.disabled = false;
+            showAnglePopovers();
+            requestAnimationFrame(() => alphaInput.focus());
+            triangleMessage.textContent = `${tri.baseA}, ${tri.baseB} 기준 각도를 입력하세요.`;
+            triangleMessage.className = "message";
+          }
+        }
+        updateSteps();
+        draw();
+      }
+
+      function updateAngles() {
+        const tri = state.triangle;
+        tri.alpha = parseFloat(alphaInput.value);
+        tri.beta = parseFloat(betaInput.value);
+        tri.ready = false;
+        tri.previewC = null;
+
+        if (!tri.baseA || !tri.baseB) {
+          triangleMessage.textContent = "먼저 두 기준점을 선택하세요.";
+          triangleMessage.className = "message";
+          updateSteps();
+          draw();
+          return;
+        }
+
+        if (!Number.isFinite(tri.alpha) || !Number.isFinite(tri.beta)) {
+          showAnglePopovers();
+          triangleMessage.textContent = "각도 두 개를 입력하세요.";
+          triangleMessage.className = "message";
+          updateSteps();
+          draw();
+          return;
+        }
+
+        if (tri.alpha <= 0 || tri.beta <= 0) {
+          showAnglePopovers();
+          triangleMessage.textContent = "각도는 0보다 커야 합니다.";
+          triangleMessage.className = "message error";
+          updateSteps();
+          draw();
+          return;
+        }
+
+        if (tri.alpha + tri.beta >= 180) {
+          showAnglePopovers();
+          triangleMessage.textContent = "두 각의 합이 180도보다 작아야 합니다.";
+          triangleMessage.className = "message error";
+          updateSteps();
+          draw();
+          return;
+        }
+
+        tri.ready = true;
+        triangleMessage.textContent = "AB 양쪽으로 커서를 옮긴 뒤 클릭하거나 Enter를 누르세요.";
+        triangleMessage.className = "message ready";
+        const a = pointById(tri.baseA);
+        const b = pointById(tri.baseB);
+        if (a && b) {
+          const leftCandidate = computeThirdPoint(a, b, tri.alpha, tri.beta, 1);
+          const rightCandidate = computeThirdPoint(a, b, tri.alpha, tri.beta, -1);
+          ensureWorldPointsVisible([a, b, leftCandidate, rightCandidate]);
+        }
+        updatePreviewFromWorld(state.lastMouseWorld || {
+          x: (a.x + b.x) / 2,
+          y: (a.y + b.y) / 2 + 1
+        });
+        updateSteps();
+        draw();
+      }
+
+      function updatePreviewFromScreen(screen) {
+        state.lastMouseWorld = screenToWorld(screen);
+        updatePreviewFromWorld(state.lastMouseWorld);
+      }
+
+      function updatePreviewFromWorld(world) {
+        const tri = state.triangle;
+        if (!tri.ready || !tri.baseA || !tri.baseB) return;
+        const a = pointById(tri.baseA);
+        const b = pointById(tri.baseB);
+        if (!a || !b) return;
+        const cross = (b.x - a.x) * (world.y - a.y) - (b.y - a.y) * (world.x - a.x);
+        if (Math.abs(cross) > 1e-12) {
+          tri.previewSide = cross > 0 ? 1 : -1;
+        }
+        tri.previewC = computeThirdPoint(a, b, tri.alpha, tri.beta, tri.previewSide);
+        draw();
+      }
+
+      function computeThirdPoint(a, b, alphaDeg, betaDeg, side) {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const baseLength = Math.hypot(dx, dy);
+        const alpha = toRadians(alphaDeg);
+        const beta = toRadians(betaDeg);
+        const acLength = baseLength * Math.sin(beta) / Math.sin(alpha + beta);
+        const baseAngle = Math.atan2(dy, dx);
+        const direction = baseAngle + side * alpha;
+        return {
+          id: nextPointName(state.nextPointIndex),
+          x: a.x + acLength * Math.cos(direction),
+          y: a.y + acLength * Math.sin(direction)
+        };
+      }
+
+      function toRadians(degrees) {
+        return degrees * Math.PI / 180;
+      }
+
+      function confirmPreviewTriangle() {
+        const tri = state.triangle;
+        const c = {
+          id: nextPointName(state.nextPointIndex),
+          x: tri.previewC.x,
+          y: tri.previewC.y
+        };
+        state.points.push(c);
+        state.nextPointIndex += 1;
+        addSegment(tri.baseA, c.id);
+        addSegment(tri.baseB, c.id);
+        state.triangles.push({ a: tri.baseA, b: tri.baseB, c: c.id });
+        state.selectedPointId = c.id;
+        setMode("move");
+        updateStatus(`${c.id} 생성`);
+        draw();
+      }
+
+      function formatCoordinate(value) {
+        const rounded = Math.abs(value) < 0.00000000005 ? 0 : value;
+        return rounded.toFixed(10);
+      }
+
+      function updateStatus(customText) {
+        if (customText) {
+          statusChip.textContent = customText;
+          return;
+        }
+        if (state.mode === "move") {
+          statusChip.textContent = "이동 모드";
+        } else {
+          const tri = state.triangle;
+          if (!tri.baseA) statusChip.textContent = "삼각형 만들기: 첫 점 선택";
+          else if (!tri.baseB) statusChip.textContent = `삼각형 만들기: ${tri.baseA} 기준`;
+          else if (!tri.ready) statusChip.textContent = `삼각형 만들기: ${tri.baseA}-${tri.baseB}`;
+          else statusChip.textContent = `프리뷰: ${tri.previewSide > 0 ? "왼쪽" : "오른쪽"} 반평면`;
+        }
+      }
+
+      function updateSteps() {
+        const tri = state.triangle;
+        const current = !tri.baseA ? "a" : !tri.baseB ? "b" : !tri.ready ? "angles" : "side";
+        for (const item of stepItems) {
+          const step = item.dataset.step;
+          item.classList.toggle("active", state.mode === "triangle" && step === current);
+          item.classList.toggle("done", isStepDone(step, tri));
+        }
+      }
+
+      function isStepDone(step, tri) {
+        if (state.mode !== "triangle") return false;
+        if (step === "a") return Boolean(tri.baseA);
+        if (step === "b") return Boolean(tri.baseB);
+        if (step === "angles") return tri.ready;
+        if (step === "side") return false;
+        return false;
+      }
+
+      function resetViewAndDraw() {
+        fitView();
+        updateStatus("화면 맞춤");
+      }
+
+      moveTool.addEventListener("click", () => setMode("move"));
+      triangleTool.addEventListener("click", () => setMode("triangle"));
+      fitViewButton.addEventListener("click", resetViewAndDraw);
+      clearMapButton.addEventListener("click", resetConstruction);
+      deletePointButton.addEventListener("click", deleteSelectedPoint);
+      alphaInput.addEventListener("input", updateAngles);
+      betaInput.addEventListener("input", updateAngles);
+      canvas.addEventListener("pointerdown", handlePointerDown);
+      canvas.addEventListener("pointermove", handlePointerMove);
+      canvas.addEventListener("pointerup", handlePointerUp);
+      canvas.addEventListener("pointercancel", handlePointerUp);
+      canvas.addEventListener("dblclick", handleCanvasDoubleClick);
+      canvas.addEventListener("click", handleCanvasClick);
+      canvas.addEventListener("wheel", handleWheel, { passive: false });
+      window.addEventListener("resize", resizeCanvas);
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+      window.addEventListener("keydown", (event) => {
+        if ((event.key === "Backspace" || event.key === "Delete") && state.mode === "move" && state.selectedPointId) {
+          event.preventDefault();
+          deleteSelectedPoint();
+          return;
+        }
+        if (event.key === "Enter" && state.mode === "triangle" && state.triangle.ready) {
+          event.preventDefault();
+          if (!state.triangle.previewC) {
+            const a = pointById(state.triangle.baseA);
+            const b = pointById(state.triangle.baseB);
+            if (a && b) {
+              updatePreviewFromWorld(state.lastMouseWorld || {
+                x: (a.x + b.x) / 2,
+                y: (a.y + b.y) / 2 + 1
+              });
+            }
+          }
+          if (state.triangle.previewC) confirmPreviewTriangle();
+          return;
+        }
+        if (event.key === "Escape" && state.mode === "triangle") setMode("move");
+      });
+
+      resetConstruction();
+      resizeCanvas();
+    })();
+  </script>
+</body>
+</html>
