@@ -306,6 +306,29 @@
       font-weight: 500;
     }
 
+    .tool-panel-title {
+      cursor: text;
+    }
+
+    .tool-panel-input {
+      width: 100%;
+      min-height: 28px;
+      box-sizing: border-box;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 4px 7px;
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .tool-panel-input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 18%, transparent);
+    }
+
     .step-list {
       display: grid;
       gap: 8px;
@@ -580,7 +603,8 @@
 
       <aside class="panel" aria-label="삼각측량 패널">
         <section class="panel-section">
-          <h2 class="panel-title">도구</h2>
+          <h2 class="panel-title tool-panel-title" id="toolPanelTitle" title="더블클릭하여 지오이드 전환">도구</h2>
+          <input class="tool-panel-input" id="toolPanelInput" type="text" aria-label="도구 전환" autocomplete="off" hidden>
           <div class="tool-stack" aria-label="도구 선택">
             <button class="tool-button" id="moveTool" type="button" aria-pressed="true">이동</button>
             <button class="tool-button" id="triangleTool" type="button" aria-pressed="false">삼각형 만들기</button>
@@ -613,7 +637,7 @@
           </div>
         </section>
         <section class="sandbox-panel" aria-label="지오이드 샌드박스">
-          <h2 class="panel-title">지오이드 샌드박스</h2>
+          <h2 class="panel-title">지오이드</h2>
           <div class="sandbox-tools" aria-label="샌드박스 도구">
             <button class="sandbox-tool" type="button" data-sandbox-tool="pen" aria-pressed="true">펜</button>
             <button class="sandbox-tool" type="button" data-sandbox-tool="dense" aria-pressed="false">고밀도</button>
@@ -653,6 +677,8 @@
       const pointCount = document.getElementById("pointCount");
       const segmentCount = document.getElementById("segmentCount");
       const triangleCount = document.getElementById("triangleCount");
+      const toolPanelTitle = document.getElementById("toolPanelTitle");
+      const toolPanelInput = document.getElementById("toolPanelInput");
       const stepItems = Array.from(document.querySelectorAll("[data-step]"));
       const sandboxToolButtons = Array.from(document.querySelectorAll("[data-sandbox-tool]"));
 
@@ -1201,6 +1227,31 @@
           }
         };
         projection.animationFrame = requestAnimationFrame(animate);
+      }
+
+      function enterSandbox() {
+        if (state.projection.target !== 1) toggleSideView();
+      }
+
+      function showToolTitle() {
+        toolPanelInput.hidden = true;
+        toolPanelTitle.hidden = false;
+        toolPanelTitle.textContent = "도구";
+      }
+
+      function beginToolTitleEdit() {
+        if (state.projection.target === 1) return;
+        toolPanelTitle.hidden = true;
+        toolPanelInput.hidden = false;
+        toolPanelInput.value = "";
+        toolPanelInput.focus();
+      }
+
+      function submitToolTitle() {
+        if (toolPanelInput.hidden) return;
+        const command = toolPanelInput.value.trim();
+        showToolTitle();
+        if (command === "지오이드") enterSandbox();
       }
 
       function cssColor(name) {
@@ -2219,6 +2270,18 @@
 
       moveTool.addEventListener("click", () => setMode("move"));
       triangleTool.addEventListener("click", () => setMode("triangle"));
+      toolPanelTitle.addEventListener("dblclick", beginToolTitleEdit);
+      toolPanelInput.addEventListener("keydown", (event) => {
+        if (event.isComposing) return;
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submitToolTitle();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          showToolTitle();
+        }
+      });
+      toolPanelInput.addEventListener("blur", submitToolTitle);
       sandboxToolButtons.forEach((button) => {
         button.addEventListener("click", () => setSandboxTool(button.dataset.sandboxTool));
       });
@@ -2236,20 +2299,7 @@
       canvas.addEventListener("wheel", handleWheel, { passive: false });
       window.addEventListener("resize", resizeCanvas);
       window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
-      const yKeyPresses = [];
       window.addEventListener("keydown", (event) => {
-        const isProjectionKey = event.key.toLowerCase() === "y" || event.key === "ㅛ" || event.code === "KeyY";
-        if (isProjectionKey && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey) {
-          event.preventDefault();
-          const now = performance.now();
-          yKeyPresses.push(now);
-          while (yKeyPresses.length && now - yKeyPresses[0] > 800) yKeyPresses.shift();
-          if (yKeyPresses.length >= 3) {
-            yKeyPresses.length = 0;
-            toggleSideView();
-          }
-          return;
-        }
         if ((event.key === "Backspace" || event.key === "Delete") && state.mode === "move" && state.selectedPointId) {
           event.preventDefault();
           deleteSelectedPoint();
