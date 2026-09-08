@@ -212,6 +212,10 @@
       cursor: crosshair;
     }
 
+    canvas.is-sandbox-cursor {
+      cursor: cell;
+    }
+
     .status-chip {
       position: absolute;
       left: 14px;
@@ -267,6 +271,31 @@
       gap: 8px;
     }
 
+    .correction-list {
+      display: grid;
+      gap: 7px;
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+
+    .correction-option {
+      display: flex;
+      align-items: center;
+      min-height: 28px;
+      gap: 8px;
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .correction-option input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      accent-color: var(--amber);
+    }
+
     .sandbox-tool {
       display: flex;
       align-items: center;
@@ -294,6 +323,7 @@
     .sandbox-tool[data-sandbox-tool="dense"] { --tool-color: var(--dense); }
     .sandbox-tool[data-sandbox-tool="light"] { --tool-color: var(--light); }
     .sandbox-tool[data-sandbox-tool="erase"] { --tool-color: var(--erase); }
+    .sandbox-tool[data-sandbox-tool="cursor"] { --tool-color: var(--amber); }
 
     .sandbox-tool[aria-pressed="true"] {
       border-color: var(--tool-color);
@@ -602,7 +632,7 @@
           <div class="coordinate-popover-value" id="measurementReadout">없음</div>
         </div>
         <div class="coordinate-popover measurement-popover" id="potentialPopover" aria-live="polite" hidden>
-          <div class="coordinate-popover-label">중력 퍼텐셜</div>
+          <div class="coordinate-popover-label" id="potentialLabel">중력</div>
           <div class="coordinate-popover-value" id="potentialReadout">없음</div>
         </div>
         <div class="status-chip" id="statusChip" aria-live="polite">이동 모드</div>
@@ -645,11 +675,17 @@
         </section>
         <section class="sandbox-panel" aria-label="지오이드 샌드박스">
           <h2 class="panel-title">지오이드</h2>
+          <fieldset class="correction-list" aria-label="중력 보정">
+            <label class="correction-option"><input type="checkbox" data-correction="freeAir" checked>프리에어 보정</label>
+            <label class="correction-option"><input type="checkbox" data-correction="bouguer" checked>부게 보정</label>
+            <label class="correction-option"><input type="checkbox" data-correction="terrain" checked>지형 보정</label>
+          </fieldset>
           <div class="sandbox-tools" aria-label="샌드박스 도구">
             <button class="sandbox-tool" type="button" data-sandbox-tool="pen" aria-pressed="true">펜</button>
             <button class="sandbox-tool" type="button" data-sandbox-tool="dense" aria-pressed="false">고밀도</button>
             <button class="sandbox-tool" type="button" data-sandbox-tool="light" aria-pressed="false">저밀도</button>
             <button class="sandbox-tool" type="button" data-sandbox-tool="erase" aria-pressed="false">지우개</button>
+            <button class="sandbox-tool" type="button" data-sandbox-tool="cursor" aria-pressed="false">커서</button>
           </div>
         </section>
       </aside>
@@ -661,6 +697,11 @@
       const app = document.querySelector(".app");
       const canvas = document.getElementById("plane");
       const ctx = canvas.getContext("2d");
+      const EARTH_GM = 3.986004418e14;
+      const EARTH_REFERENCE_RADIUS_METERS = 6378137;
+      const NORMAL_GRAVITY = 9.806199203;
+      const SANDBOX_METERS_PER_PIXEL = 40;
+      const STOKES_LOCAL_RADIUS_METERS = 32000;
       const moveTool = document.getElementById("moveTool");
       const triangleTool = document.getElementById("triangleTool");
       const fitViewButton = document.getElementById("fitView");
@@ -676,6 +717,7 @@
       const measurementLabel = document.getElementById("measurementLabel");
       const measurementReadout = document.getElementById("measurementReadout");
       const potentialPopover = document.getElementById("potentialPopover");
+      const potentialLabel = document.getElementById("potentialLabel");
       const potentialReadout = document.getElementById("potentialReadout");
       const alphaInput = document.getElementById("alphaInput");
       const betaInput = document.getElementById("betaInput");
@@ -688,6 +730,7 @@
       const toolPanelInput = document.getElementById("toolPanelInput");
       const stepItems = Array.from(document.querySelectorAll("[data-step]"));
       const sandboxToolButtons = Array.from(document.querySelectorAll("[data-sandbox-tool]"));
+      const correctionInputs = Array.from(document.querySelectorAll("[data-correction]"));
 
       const state = {
         mode: "move",
@@ -753,6 +796,11 @@
           mass: [],
           densityBlobs: [],
           particles: [],
+          corrections: {
+            freeAir: true,
+            bouguer: true,
+            terrain: true
+          },
           pointer: {
             id: null,
             down: false,
@@ -760,7 +808,9 @@
             y: 0,
             moved: false,
             downAt: 0,
-            lastSpawnAt: 0
+            lastSpawnAt: 0,
+            lastEraseAt: 0,
+            hasAppliedMaterial: false
           },
           animationFrame: null
         };
@@ -777,6 +827,7 @@
         state.selectedPointId = null;
         state.measurement = freshMeasurementState();
         state.sandbox = freshSandboxState();
+        updateSandboxCorrections();
         addSegment("A", "B");
         coordinateReadout.textContent = "없음";
         coordinatePopover.hidden = true;
@@ -1062,7 +1113,15 @@
       }
 
       function showPotentialPopover(probe) {
-        potentialReadout.textContent = `Φ = ${probe.potential.toFixed(4)} MJ/kg`;
+        potentialLabel.textContent = "중력 퍼텐셜";
+        potentialReadout.textContent = `Φ = ${probe.potential.toFixed(6)} MJ/kg`;
+        potentialPopover.hidden = false;
+        positionPotentialPopover();
+      }
+
+      function showGravityPopover(probe) {
+        potentialLabel.textContent = "중력";
+        potentialReadout.textContent = `${probe.gravity.toFixed(7)} m/s² · ${probe.anomaly.toFixed(2)} mGal`;
         potentialPopover.hidden = false;
         positionPotentialPopover();
       }
@@ -1084,13 +1143,34 @@
 
       function measurePotentialAt(screen) {
         const { width } = screenSize();
-        const seaLevelY = state.view.offsetY;
-        const geoidY = seaLevelY + geoidOffset(screen.x, width);
-        const heightAboveGeoidMeters = (geoidY - screen.y) * 45;
-        const potential = -62.6 + heightAboveGeoidMeters * 9.80665e-6;
-        state.sideProbe = { x: screen.x, y: screen.y, potential };
+        const model = potentialModelAt(screen.x, screen.y, width);
+        state.sideProbe = { x: screen.x, y: screen.y, ...model };
         showPotentialPopover(state.sideProbe);
         updateStatus("중력 퍼텐셜 표시");
+        draw();
+      }
+
+      function potentialModelAt(x, screenY, width) {
+        const observationHeight = (state.view.offsetY - screenY) * SANDBOX_METERS_PER_PIXEL;
+        const terrainHeight = terrainHeightMetersAt(x);
+        const anomaly = correctedAnomalyMgal(x, observationHeight, terrainHeight, width);
+        const stokesUndulation = stokesUndulationMeters(x, width);
+        const radius = Math.max(1, EARTH_REFERENCE_RADIUS_METERS + observationHeight);
+        const normalPotential = -EARTH_GM / radius;
+        const disturbingPotential = NORMAL_GRAVITY * stokesUndulation;
+        return {
+          potential: (normalPotential + disturbingPotential) / 1e6,
+          anomaly,
+          stokesUndulation
+        };
+      }
+
+      function measureSandboxGravityAt(screen) {
+        const { width } = screenSize();
+        const model = gravityModelAt(screen.x, screen.y, width);
+        state.sideProbe = { x: screen.x, y: screen.y, ...model };
+        showGravityPopover(state.sideProbe);
+        updateStatus("중력 표시");
         draw();
       }
 
@@ -1197,6 +1277,7 @@
         const enteringSandbox = projection.target === 1;
         app.classList.toggle("is-sandbox-mode", enteringSandbox);
         canvas.classList.toggle("is-sandbox", enteringSandbox);
+        canvas.classList.toggle("is-sandbox-cursor", enteringSandbox && state.sandbox.tool === "cursor");
         state.sideProbe = null;
         potentialPopover.hidden = true;
         if (enteringSandbox) {
@@ -1369,21 +1450,79 @@
         ctx.fillText("지오이드", 12, seaLevelY + geoidOffset(12, width) + 28);
         ctx.fillStyle = cssColor("--green-deep");
         ctx.fillText("지표면", 12, terrainYAt(12) - 8);
+        drawPotentialProbe();
       }
 
       function geoidOffset(x, width) {
-        const { mass, terrain } = state.sandbox;
+        return -stokesUndulationMeters(x, width) * 78;
+      }
+
+      function stokesUndulationMeters(x, width) {
+        const terrainHeight = terrainHeightMetersAt(x);
+        const anomaly = correctedAnomalyMgal(x, terrainHeight, terrainHeight, width);
+        // N = R/(4πγ) ∫ Δg S(ψ)dσ. A one-dimensional sandbox cannot supply global data,
+        // so its truncated local kernel is represented by a 32 km effective integration radius.
+        return anomaly * 1e-5 * STOKES_LOCAL_RADIUS_METERS / (2 * Math.PI * NORMAL_GRAVITY);
+      }
+
+      function gravityModelAt(x, screenY, width) {
+        const observationHeight = (state.view.offsetY - screenY) * 40;
+        const terrainHeight = terrainHeightMetersAt(x);
+        const anomaly = correctedAnomalyMgal(x, observationHeight, terrainHeight, width);
+        return {
+          gravity: NORMAL_GRAVITY + anomaly * 1e-5,
+          anomaly
+        };
+      }
+
+      function correctedAnomalyMgal(x, observationHeight, terrainHeight, width) {
+        const corrections = state.sandbox.corrections;
+        const freeAir = 0.3086 * observationHeight;
+        const bouguer = bouguerCorrectionMgal(terrainHeight);
+        let anomaly = densityAnomalyMgalAt(x, width) - freeAir + bouguer;
+        if (corrections.freeAir) anomaly += freeAir;
+        if (corrections.bouguer) anomaly -= bouguer;
+        if (corrections.terrain) anomaly += terrainCorrectionMgalAt(x, width);
+        return anomaly;
+      }
+
+      function bouguerCorrectionMgal(heightMeters) {
+        const density = heightMeters >= 0 ? 2.67 : 2.67 - 1.03;
+        return 0.0419 * density * heightMeters;
+      }
+
+      function densityAnomalyMgalAt(x, width) {
+        const { mass } = state.sandbox;
         if (!mass.length) return 0;
-        const center = (x / Math.max(width, 1)) * (mass.length - 1);
-        let value = 0;
-        let weight = 0;
+        const center = x / Math.max(width, 1) * (mass.length - 1);
+        let weightedMass = 0;
+        let totalWeight = 0;
         for (let index = Math.max(0, Math.floor(center) - 12); index <= Math.min(mass.length - 1, Math.ceil(center) + 12); index += 1) {
-          const distance = Math.abs(index - center);
-          const localWeight = Math.max(0, 1 - distance / 13);
-          value += (mass[index] + terrain[index] * 0.065) * localWeight;
-          weight += localWeight;
+          const weight = Math.max(0, 1 - Math.abs(index - center) / 13);
+          weightedMass += mass[index] * weight;
+          totalWeight += weight;
         }
-        return -(value / Math.max(weight, 1)) * 9;
+        return weightedMass / Math.max(totalWeight, 1) * 12;
+      }
+
+      function terrainCorrectionMgalAt(x, width) {
+        const { terrain } = state.sandbox;
+        if (terrain.length < 2) return 0;
+        const center = Math.round(clamp(x / Math.max(width, 1) * (terrain.length - 1), 0, terrain.length - 1));
+        const centerHeight = terrainHeightMetersAt(x);
+        const sampleWidth = width / Math.max(terrain.length - 1, 1) * 1000;
+        let correction = 0;
+        for (let index = Math.max(0, center - 18); index <= Math.min(terrain.length - 1, center + 18); index += 1) {
+          if (index === center) continue;
+          const neighborX = index / Math.max(terrain.length - 1, 1) * width;
+          const relief = terrainHeightMetersAt(neighborX) - centerHeight;
+          if (Math.abs(relief) < 0.01) continue;
+          const distance = Math.abs(index - center) * sampleWidth;
+          const vertical = Math.max(Math.abs(relief) / 2, 1);
+          const mass = 2670 * sampleWidth * sampleWidth * Math.abs(relief);
+          correction += 6.67430e-11 * mass * vertical / Math.pow(distance * distance + vertical * vertical, 1.5) * 1e5;
+        }
+        return correction;
       }
 
       function drawDensityBlobs(width, height) {
@@ -1448,9 +1587,14 @@
         return terrainBaseY() - height;
       }
 
+      function terrainHeightMetersAt(x) {
+        return (state.view.offsetY - terrainYAt(x)) * SANDBOX_METERS_PER_PIXEL;
+      }
+
       function materialColor(tool) {
         if (tool === "dense") return cssColor("--dense");
         if (tool === "light") return cssColor("--light");
+        if (tool === "cursor") return cssColor("--amber");
         return cssColor("--sand");
       }
 
@@ -1460,13 +1604,24 @@
         }
       }
 
+      function updateSandboxCorrections() {
+        for (const input of correctionInputs) {
+          input.checked = state.sandbox.corrections[input.dataset.correction];
+        }
+      }
+
       function setSandboxTool(tool) {
         state.sandbox.tool = tool;
+        canvas.classList.toggle("is-sandbox-cursor", tool === "cursor");
         updateSandboxToolButtons();
       }
 
       function beginSandboxPointer(event, screen) {
         const sandbox = state.sandbox;
+        if (sandbox.tool === "cursor") {
+          measurePotentialAt(screen);
+          return;
+        }
         sandbox.pointer = {
           id: event.pointerId,
           down: true,
@@ -1474,11 +1629,11 @@
           y: screen.y,
           moved: false,
           downAt: performance.now(),
-          lastSpawnAt: 0
+          lastSpawnAt: 0,
+          lastEraseAt: 0,
+          hasAppliedMaterial: false
         };
         canvas.setPointerCapture(event.pointerId);
-        if (sandbox.tool === "erase") eraseSandboxAt(screen.x);
-        else spawnSandboxParticles(screen, 4);
         requestSandboxFrame();
       }
 
@@ -1488,7 +1643,6 @@
         pointer.moved = pointer.moved || Math.hypot(pointer.x - screen.x, pointer.y - screen.y) > 2;
         pointer.x = screen.x;
         pointer.y = screen.y;
-        if (state.sandbox.tool === "erase") eraseSandboxAt(screen.x);
         requestSandboxFrame();
       }
 
@@ -1524,9 +1678,17 @@
         const sandbox = state.sandbox;
         sandbox.animationFrame = null;
         const pointer = sandbox.pointer;
-        if (pointer.down && sandbox.tool !== "erase" && (pointer.moved || now - pointer.downAt > 180) && now - pointer.lastSpawnAt > 42) {
-          spawnSandboxParticles(pointer, 3);
-          pointer.lastSpawnAt = now;
+        const isApplyingMaterial = pointer.moved || now - pointer.downAt > 180;
+        if (pointer.down && isApplyingMaterial) {
+          if (sandbox.tool === "erase" && now - pointer.lastEraseAt > 42) {
+            eraseSandboxAt(pointer.x);
+            pointer.lastEraseAt = now;
+            pointer.hasAppliedMaterial = true;
+          } else if (sandbox.tool !== "erase" && sandbox.tool !== "cursor" && now - pointer.lastSpawnAt > 42) {
+            spawnSandboxParticles(pointer, 3);
+            pointer.lastSpawnAt = now;
+            pointer.hasAppliedMaterial = true;
+          }
         }
 
         const { height } = screenSize();
@@ -2291,6 +2453,13 @@
       toolPanelInput.addEventListener("blur", submitToolTitle);
       sandboxToolButtons.forEach((button) => {
         button.addEventListener("click", () => setSandboxTool(button.dataset.sandboxTool));
+      });
+      correctionInputs.forEach((input) => {
+        input.addEventListener("change", () => {
+          state.sandbox.corrections[input.dataset.correction] = input.checked;
+          updateStatus("중력 보정 변경");
+          draw();
+        });
       });
       fitViewButton.addEventListener("click", resetViewAndDraw);
       clearMapButton.addEventListener("click", resetConstruction);
