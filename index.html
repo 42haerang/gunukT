@@ -307,6 +307,13 @@
     }
 
     .tool-panel-title {
+      width: fit-content;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
       cursor: text;
     }
 
@@ -603,7 +610,7 @@
 
       <aside class="panel" aria-label="삼각측량 패널">
         <section class="panel-section">
-          <h2 class="panel-title tool-panel-title" id="toolPanelTitle" title="더블클릭하여 지오이드 전환">도구</h2>
+          <button class="panel-title tool-panel-title" id="toolPanelTitle" type="button" title="더블클릭하여 지오이드 전환">도구</button>
           <input class="tool-panel-input" id="toolPanelInput" type="text" aria-label="도구 전환" autocomplete="off" hidden>
           <div class="tool-stack" aria-label="도구 선택">
             <button class="tool-button" id="moveTool" type="button" aria-pressed="true">이동</button>
