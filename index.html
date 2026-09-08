@@ -718,6 +718,7 @@
           tool: "pen",
           terrain: [],
           mass: [],
+          densityBlobs: [],
           particles: [],
           pointer: {
             id: null,
@@ -1258,7 +1259,7 @@
         ctx.fillStyle = rgbaFromHex(cssColor("--green-deep"), 0.22);
         ctx.fill();
 
-        drawDensityTerrainFill(width);
+        drawDensityBlobs(width, height);
 
         ctx.beginPath();
         ctx.moveTo(0, seaLevelY);
@@ -1324,30 +1325,33 @@
           value += (mass[index] + terrain[index] * 0.065) * localWeight;
           weight += localWeight;
         }
-        return -clamp((value / Math.max(weight, 1)) * 9, -34, 34);
+        return -(value / Math.max(weight, 1)) * 9;
       }
 
-      function drawDensityTerrainFill(width) {
-        const { mass } = state.sandbox;
-        if (mass.length < 2) return;
-        const { height } = screenSize();
-        const bottom = Math.min(height, terrainBaseY() + 92);
-        const sliceWidth = width / (mass.length - 1);
-        for (let index = 0; index < mass.length - 1; index += 1) {
-          const value = (mass[index] + mass[index + 1]) / 2;
-          if (Math.abs(value) < 0.025) continue;
-          const x = index * sliceWidth;
-          const nextX = (index + 1) * sliceWidth;
+      function drawDensityBlobs(width, height) {
+        const blobs = state.sandbox.densityBlobs;
+        if (!blobs.length) return;
+        ctx.save();
+        ctx.beginPath();
+        for (let x = 0; x <= width; x += 2) {
+          const y = terrainYAt(x);
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.lineTo(width, height);
+        ctx.lineTo(0, height);
+        ctx.closePath();
+        ctx.clip();
+        for (const blob of blobs) {
+          const x = blob.position * width;
+          const y = terrainYAt(x) + blob.depth;
+          const color = blob.tool === "dense" ? cssColor("--dense") : cssColor("--light");
           ctx.beginPath();
-          ctx.moveTo(x, terrainYAt(x));
-          ctx.lineTo(nextX, terrainYAt(nextX));
-          ctx.lineTo(nextX, bottom);
-          ctx.lineTo(x, bottom);
-          ctx.closePath();
-          const color = value > 0 ? cssColor("--dense") : cssColor("--light");
-          ctx.fillStyle = rgbaFromHex(color, Math.min(0.5, 0.12 + Math.abs(value) * 0.12));
+          ctx.arc(x, y, blob.radius, 0, Math.PI * 2);
+          ctx.fillStyle = rgbaFromHex(color, 0.38);
           ctx.fill();
         }
+        ctx.restore();
       }
 
       function ensureSandboxField() {
@@ -1473,7 +1477,7 @@
           particle.x += particle.vx;
           particle.y += particle.vy;
           if (particle.y >= terrainYAt(particle.x)) {
-            applySandboxMaterial(particle.x, particle.tool);
+            applySandboxMaterial(particle.x, particle.y, particle.tool);
             return false;
           }
           return particle.y < height + 18;
@@ -1483,7 +1487,7 @@
         if (pointer.down || sandbox.particles.length) requestSandboxFrame();
       }
 
-      function applySandboxMaterial(x, tool) {
+      function applySandboxMaterial(x, impactY, tool) {
         const sandbox = state.sandbox;
         const { width } = screenSize();
         const center = Math.round(clamp(x / Math.max(width, 1) * (sandbox.terrain.length - 1), 0, sandbox.terrain.length - 1));
@@ -1491,13 +1495,21 @@
         for (let index = Math.max(0, center - radius); index <= Math.min(sandbox.terrain.length - 1, center + radius); index += 1) {
           const weight = Math.max(0, 1 - Math.abs(index - center) / (radius + 1));
           if (tool === "dense") {
-            sandbox.mass[index] = clamp(sandbox.mass[index] + weight * 0.32, -6, 6);
+            sandbox.mass[index] += weight * 0.32;
           } else if (tool === "light") {
-            sandbox.mass[index] = clamp(sandbox.mass[index] - weight * 0.32, -6, 6);
+            sandbox.mass[index] -= weight * 0.32;
           } else {
             sandbox.terrain[index] += weight * 1.2;
             sandbox.mass[index] *= 0.996;
           }
+        }
+        if (tool === "dense" || tool === "light") {
+          sandbox.densityBlobs.push({
+            tool,
+            position: clamp(x / Math.max(width, 1), 0, 1),
+            depth: Math.max(8, impactY - terrainYAt(x)) + 8 + Math.random() * 14,
+            radius: 7 + Math.random() * 6
+          });
         }
       }
 
@@ -1512,6 +1524,7 @@
           sandbox.terrain[index] *= 1 - weight * 0.12;
           sandbox.mass[index] *= 1 - weight * 0.18;
         }
+        sandbox.densityBlobs = sandbox.densityBlobs.filter((blob) => Math.abs(blob.position * width - x) > blob.radius + 18);
         draw();
       }
 
