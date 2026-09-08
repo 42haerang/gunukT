@@ -20,6 +20,10 @@
       --blue: #235fba;
       --amber: #9a6418;
       --red: #b43737;
+      --sand: #a85d1e;
+      --dense: #6746a3;
+      --light: #1d8c9b;
+      --erase: #b43737;
       --button: #ffffff;
       --button-active: #183e2a;
       --button-active-text: #ffffff;
@@ -42,6 +46,10 @@
         --blue: #75a7ff;
         --amber: #f0b66a;
         --red: #ff8b8b;
+        --sand: #f1a95a;
+        --dense: #b89aff;
+        --light: #65d5dc;
+        --erase: #ff8b8b;
         --button: #252b27;
         --button-active: #8fe0a9;
         --button-active-text: #102016;
@@ -200,6 +208,10 @@
       cursor: grabbing;
     }
 
+    canvas.is-sandbox {
+      cursor: crosshair;
+    }
+
     .status-chip {
       position: absolute;
       left: 14px;
@@ -234,6 +246,58 @@
     .panel-section:last-child {
       padding-bottom: 0;
       border-bottom: 0;
+    }
+
+    .sandbox-panel {
+      display: none;
+      gap: 12px;
+    }
+
+    .app.is-sandbox-mode .panel-section {
+      display: none;
+    }
+
+    .app.is-sandbox-mode .sandbox-panel {
+      display: grid;
+    }
+
+    .sandbox-tools {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .sandbox-tool {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 8px;
+      min-height: 48px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: var(--button);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .sandbox-tool::before {
+      width: 12px;
+      height: 12px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--tool-color);
+      content: "";
+    }
+
+    .sandbox-tool[data-sandbox-tool="pen"] { --tool-color: var(--sand); }
+    .sandbox-tool[data-sandbox-tool="dense"] { --tool-color: var(--dense); }
+    .sandbox-tool[data-sandbox-tool="light"] { --tool-color: var(--light); }
+    .sandbox-tool[data-sandbox-tool="erase"] { --tool-color: var(--erase); }
+
+    .sandbox-tool[aria-pressed="true"] {
+      border-color: var(--tool-color);
+      box-shadow: inset 0 0 0 1px var(--tool-color);
     }
 
     .panel-title {
@@ -548,6 +612,15 @@
             <div class="stat-line"><span>삼각형</span><strong id="triangleCount">0</strong></div>
           </div>
         </section>
+        <section class="sandbox-panel" aria-label="지오이드 샌드박스">
+          <h2 class="panel-title">지오이드 샌드박스</h2>
+          <div class="sandbox-tools" aria-label="샌드박스 도구">
+            <button class="sandbox-tool" type="button" data-sandbox-tool="pen" aria-pressed="true">펜</button>
+            <button class="sandbox-tool" type="button" data-sandbox-tool="dense" aria-pressed="false">고밀도</button>
+            <button class="sandbox-tool" type="button" data-sandbox-tool="light" aria-pressed="false">저밀도</button>
+            <button class="sandbox-tool" type="button" data-sandbox-tool="erase" aria-pressed="false">지우개</button>
+          </div>
+        </section>
       </aside>
     </main>
   </div>
@@ -581,6 +654,7 @@
       const segmentCount = document.getElementById("segmentCount");
       const triangleCount = document.getElementById("triangleCount");
       const stepItems = Array.from(document.querySelectorAll("[data-step]"));
+      const sandboxToolButtons = Array.from(document.querySelectorAll("[data-sandbox-tool]"));
 
       const state = {
         mode: "move",
@@ -592,6 +666,7 @@
         measurement: freshMeasurementState(),
         triangle: freshTriangleState(),
         sideProbe: null,
+        sandbox: freshSandboxState(),
         view: {
           scale: 100,
           offsetX: 0,
@@ -638,6 +713,25 @@
         };
       }
 
+      function freshSandboxState() {
+        return {
+          tool: "pen",
+          terrain: [],
+          mass: [],
+          particles: [],
+          pointer: {
+            id: null,
+            down: false,
+            x: 0,
+            y: 0,
+            moved: false,
+            downAt: 0,
+            lastSpawnAt: 0
+          },
+          animationFrame: null
+        };
+      }
+
       function resetConstruction() {
         state.points = [
           { id: "A", x: 0, y: 0 },
@@ -648,6 +742,7 @@
         state.nextPointIndex = 2;
         state.selectedPointId = null;
         state.measurement = freshMeasurementState();
+        state.sandbox = freshSandboxState();
         addSegment("A", "B");
         coordinateReadout.textContent = "없음";
         coordinatePopover.hidden = true;
@@ -1065,12 +1160,18 @@
       function toggleSideView() {
         const projection = state.projection;
         projection.target = projection.target === 1 ? 0 : 1;
+        const enteringSandbox = projection.target === 1;
+        app.classList.toggle("is-sandbox-mode", enteringSandbox);
+        canvas.classList.toggle("is-sandbox", enteringSandbox);
         state.sideProbe = null;
         potentialPopover.hidden = true;
-        if (projection.target === 1) {
+        if (enteringSandbox) {
           state.selectedPointId = null;
           coordinatePopover.hidden = true;
           clearMeasurement(false);
+          updateSandboxToolButtons();
+        } else {
+          stopSandboxPointer();
         }
         if (projection.animationFrame) cancelAnimationFrame(projection.animationFrame);
 
@@ -1121,8 +1222,7 @@
         ctx.clearRect(0, 0, width, height);
 
         if (isSideView()) {
-          drawSeaLevelScene();
-          drawPotentialProbe();
+          drawSandboxScene();
           updateCounts();
           updateDeletePointButton();
           return;
@@ -1140,16 +1240,49 @@
         updateDeletePointButton();
       }
 
-      function drawSeaLevelScene() {
-        const { width } = screenSize();
+      function drawSandboxScene() {
+        const { width, height } = screenSize();
+        ensureSandboxField();
         const seaLevelY = state.view.offsetY;
+        const sandbox = state.sandbox;
+
+        ctx.beginPath();
+        for (let x = 0; x <= width; x += 2) {
+          const y = terrainYAt(x);
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.lineTo(width, height);
+        ctx.lineTo(0, height);
+        ctx.closePath();
+        ctx.fillStyle = rgbaFromHex(cssColor("--green-deep"), 0.22);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(0, seaLevelY);
+        ctx.lineTo(width, seaLevelY);
+        for (let x = width; x >= 0; x -= 2) ctx.lineTo(x, terrainYAt(x));
+        ctx.closePath();
+        ctx.fillStyle = rgbaFromHex(cssColor("--blue"), 0.1);
+        ctx.fill();
+
+        ctx.beginPath();
+        for (let x = 0; x <= width; x += 2) {
+          const y = terrainYAt(x);
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = cssColor("--green-deep");
+        ctx.lineWidth = 3;
+        ctx.stroke();
 
         ctx.strokeStyle = cssColor("--blue");
-        ctx.lineWidth = 2.2;
+        ctx.lineWidth = 2.5;
         drawLine({ x: 0, y: seaLevelY }, { x: width, y: seaLevelY });
 
         ctx.strokeStyle = rgbaFromHex(cssColor("--amber"), 0.95);
-        ctx.lineWidth = 2.4;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([7, 5]);
         ctx.beginPath();
         for (let x = 0; x <= width; x += 2) {
           const y = seaLevelY + geoidOffset(x, width);
@@ -1157,6 +1290,14 @@
           else ctx.lineTo(x, y);
         }
         ctx.stroke();
+        ctx.setLineDash([]);
+
+        for (const particle of sandbox.particles) {
+          ctx.beginPath();
+          ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+          ctx.fillStyle = particle.color;
+          ctx.fill();
+        }
 
         ctx.font = "12px system-ui, sans-serif";
         ctx.textBaseline = "bottom";
@@ -1164,11 +1305,191 @@
         ctx.fillStyle = cssColor("--blue");
         ctx.fillText("해수면", 12, seaLevelY - 8);
         ctx.fillStyle = cssColor("--amber");
-        ctx.fillText("지오이드", 12, seaLevelY + 30);
+        ctx.fillText("지오이드", 12, seaLevelY + geoidOffset(12, width) + 28);
+        ctx.fillStyle = cssColor("--green-deep");
+        ctx.fillText("지표면", 12, terrainYAt(12) - 8);
       }
 
       function geoidOffset(x, width) {
-        return 20;
+        const { mass } = state.sandbox;
+        if (!mass.length) return 0;
+        const center = (x / Math.max(width, 1)) * (mass.length - 1);
+        let value = 0;
+        let weight = 0;
+        for (let index = Math.max(0, Math.floor(center) - 12); index <= Math.min(mass.length - 1, Math.ceil(center) + 12); index += 1) {
+          const distance = Math.abs(index - center);
+          const localWeight = Math.max(0, 1 - distance / 13);
+          value += mass[index] * localWeight;
+          weight += localWeight;
+        }
+        return -clamp((value / Math.max(weight, 1)) * 9, -34, 34);
+      }
+
+      function ensureSandboxField() {
+        const { width } = screenSize();
+        const sandbox = state.sandbox;
+        const size = Math.max(96, Math.round(width / 4));
+        if (sandbox.terrain.length === size) return;
+
+        const previousTerrain = sandbox.terrain;
+        const previousMass = sandbox.mass;
+        sandbox.terrain = Array.from({ length: size }, (_, index) => interpolateField(previousTerrain, index, size));
+        sandbox.mass = Array.from({ length: size }, (_, index) => interpolateField(previousMass, index, size));
+      }
+
+      function interpolateField(field, index, nextSize) {
+        if (!field.length) return 0;
+        const position = index * (field.length - 1) / Math.max(nextSize - 1, 1);
+        const lower = Math.floor(position);
+        const upper = Math.min(field.length - 1, lower + 1);
+        return field[lower] + (field[upper] - field[lower]) * (position - lower);
+      }
+
+      function terrainBaseY() {
+        const { height } = screenSize();
+        return state.view.offsetY + Math.min(132, height * 0.3);
+      }
+
+      function terrainYAt(x) {
+        const { width } = screenSize();
+        const terrain = state.sandbox.terrain;
+        if (!terrain.length) return terrainBaseY();
+        const position = clamp(x / Math.max(width, 1) * (terrain.length - 1), 0, terrain.length - 1);
+        const lower = Math.floor(position);
+        const upper = Math.min(terrain.length - 1, lower + 1);
+        const height = terrain[lower] + (terrain[upper] - terrain[lower]) * (position - lower);
+        return terrainBaseY() - height;
+      }
+
+      function materialColor(tool) {
+        if (tool === "dense") return cssColor("--dense");
+        if (tool === "light") return cssColor("--light");
+        return cssColor("--sand");
+      }
+
+      function updateSandboxToolButtons() {
+        for (const button of sandboxToolButtons) {
+          button.setAttribute("aria-pressed", String(button.dataset.sandboxTool === state.sandbox.tool));
+        }
+      }
+
+      function setSandboxTool(tool) {
+        state.sandbox.tool = tool;
+        updateSandboxToolButtons();
+      }
+
+      function beginSandboxPointer(event, screen) {
+        const sandbox = state.sandbox;
+        sandbox.pointer = {
+          id: event.pointerId,
+          down: true,
+          x: screen.x,
+          y: screen.y,
+          moved: false,
+          downAt: performance.now(),
+          lastSpawnAt: 0
+        };
+        canvas.setPointerCapture(event.pointerId);
+        if (sandbox.tool === "erase") eraseSandboxAt(screen.x);
+        else spawnSandboxParticles(screen, 4);
+        requestSandboxFrame();
+      }
+
+      function updateSandboxPointer(event, screen) {
+        const pointer = state.sandbox.pointer;
+        if (!pointer.down || pointer.id !== event.pointerId) return;
+        pointer.moved = pointer.moved || Math.hypot(pointer.x - screen.x, pointer.y - screen.y) > 2;
+        pointer.x = screen.x;
+        pointer.y = screen.y;
+        if (state.sandbox.tool === "erase") eraseSandboxAt(screen.x);
+        requestSandboxFrame();
+      }
+
+      function stopSandboxPointer(event) {
+        const pointer = state.sandbox.pointer;
+        if (event && pointer.id !== event.pointerId) return;
+        if (event && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+        pointer.down = false;
+        pointer.id = null;
+      }
+
+      function spawnSandboxParticles(screen, count = 2) {
+        const sandbox = state.sandbox;
+        for (let index = 0; index < count; index += 1) {
+          sandbox.particles.push({
+            x: screen.x + (Math.random() - 0.5) * 12,
+            y: screen.y + (Math.random() - 0.5) * 5,
+            vx: (Math.random() - 0.5) * 0.8,
+            vy: Math.random() * 0.7,
+            radius: 1.6 + Math.random() * 1.6,
+            tool: sandbox.tool,
+            color: materialColor(sandbox.tool)
+          });
+        }
+      }
+
+      function requestSandboxFrame() {
+        if (state.sandbox.animationFrame) return;
+        state.sandbox.animationFrame = requestAnimationFrame(updateSandboxFrame);
+      }
+
+      function updateSandboxFrame(now) {
+        const sandbox = state.sandbox;
+        sandbox.animationFrame = null;
+        const pointer = sandbox.pointer;
+        if (pointer.down && sandbox.tool !== "erase" && (pointer.moved || now - pointer.downAt > 180) && now - pointer.lastSpawnAt > 42) {
+          spawnSandboxParticles(pointer, 3);
+          pointer.lastSpawnAt = now;
+        }
+
+        const { height } = screenSize();
+        sandbox.particles = sandbox.particles.filter((particle) => {
+          particle.vy += 0.24;
+          particle.x += particle.vx;
+          particle.y += particle.vy;
+          if (particle.y >= terrainYAt(particle.x)) {
+            applySandboxMaterial(particle.x, particle.tool);
+            return false;
+          }
+          return particle.y < height + 18;
+        });
+
+        draw();
+        if (pointer.down || sandbox.particles.length) requestSandboxFrame();
+      }
+
+      function applySandboxMaterial(x, tool) {
+        const sandbox = state.sandbox;
+        const { width } = screenSize();
+        const center = Math.round(clamp(x / Math.max(width, 1) * (sandbox.terrain.length - 1), 0, sandbox.terrain.length - 1));
+        const radius = 10;
+        for (let index = Math.max(0, center - radius); index <= Math.min(sandbox.terrain.length - 1, center + radius); index += 1) {
+          const weight = Math.max(0, 1 - Math.abs(index - center) / (radius + 1));
+          if (tool === "dense") {
+            sandbox.terrain[index] = clamp(sandbox.terrain[index] - weight * 1.3, -60, 180);
+            sandbox.mass[index] = clamp(sandbox.mass[index] + weight * 0.32, -6, 6);
+          } else if (tool === "light") {
+            sandbox.terrain[index] = clamp(sandbox.terrain[index] + weight * 1.05, -60, 180);
+            sandbox.mass[index] = clamp(sandbox.mass[index] - weight * 0.32, -6, 6);
+          } else {
+            sandbox.terrain[index] = clamp(sandbox.terrain[index] + weight * 1.2, -60, 180);
+            sandbox.mass[index] *= 0.996;
+          }
+        }
+      }
+
+      function eraseSandboxAt(x) {
+        const sandbox = state.sandbox;
+        ensureSandboxField();
+        const { width } = screenSize();
+        const center = Math.round(clamp(x / Math.max(width, 1) * (sandbox.terrain.length - 1), 0, sandbox.terrain.length - 1));
+        const radius = 14;
+        for (let index = Math.max(0, center - radius); index <= Math.min(sandbox.terrain.length - 1, center + radius); index += 1) {
+          const weight = Math.max(0, 1 - Math.abs(index - center) / (radius + 1));
+          sandbox.terrain[index] *= 1 - weight * 0.12;
+          sandbox.mass[index] *= 1 - weight * 0.18;
+        }
+        draw();
       }
 
       function drawPotentialProbe() {
@@ -1559,7 +1880,7 @@
 
       function handlePointerDown(event) {
         if (isSideView()) {
-          measurePotentialAt(canvasPoint(event));
+          beginSandboxPointer(event, canvasPoint(event));
           return;
         }
         const screen = canvasPoint(event);
@@ -1592,7 +1913,10 @@
       }
 
       function handlePointerMove(event) {
-        if (isSideView()) return;
+        if (isSideView()) {
+          updateSandboxPointer(event, canvasPoint(event));
+          return;
+        }
         const screen = canvasPoint(event);
         state.lastMouseWorld = screenToWorld(screen);
 
@@ -1618,6 +1942,10 @@
       }
 
       function handlePointerUp(event) {
+        if (isSideView()) {
+          stopSandboxPointer(event);
+          return;
+        }
         if (state.pointer.id === event.pointerId) {
           state.pointer.dragging = false;
           state.pointer.id = null;
@@ -1855,6 +2183,9 @@
 
       moveTool.addEventListener("click", () => setMode("move"));
       triangleTool.addEventListener("click", () => setMode("triangle"));
+      sandboxToolButtons.forEach((button) => {
+        button.addEventListener("click", () => setSandboxTool(button.dataset.sandboxTool));
+      });
       fitViewButton.addEventListener("click", resetViewAndDraw);
       clearMapButton.addEventListener("click", resetConstruction);
       deletePointButton.addEventListener("click", deleteSelectedPoint);
