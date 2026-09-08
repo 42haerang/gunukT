@@ -701,6 +701,8 @@
       const EARTH_REFERENCE_RADIUS_METERS = 6378137;
       const NORMAL_GRAVITY = 9.806199203;
       const SANDBOX_METERS_PER_PIXEL = 40;
+      const SANDBOX_DEFAULT_TERRAIN_HEIGHT_METERS = -1000;
+      const SANDBOX_HEIGHT_GUIDE_STEP_METERS = 1000;
       const STOKES_LOCAL_RADIUS_METERS = 32000;
       const moveTool = document.getElementById("moveTool");
       const triangleTool = document.getElementById("triangleTool");
@@ -1386,6 +1388,8 @@
         const seaLevelY = state.view.offsetY;
         const sandbox = state.sandbox;
 
+        drawSandboxHeightGuides(width, height);
+
         ctx.beginPath();
         for (let x = 0; x <= width; x += 2) {
           const y = terrainYAt(x);
@@ -1451,6 +1455,31 @@
         ctx.fillStyle = cssColor("--green-deep");
         ctx.fillText("지표면", 12, terrainYAt(12) - 8);
         drawPotentialProbe();
+      }
+
+      function drawSandboxHeightGuides(width, height) {
+        const seaLevelY = state.view.offsetY;
+        const minHeight = Math.floor((seaLevelY - height) * SANDBOX_METERS_PER_PIXEL / SANDBOX_HEIGHT_GUIDE_STEP_METERS)
+          * SANDBOX_HEIGHT_GUIDE_STEP_METERS;
+        const maxHeight = Math.ceil(seaLevelY * SANDBOX_METERS_PER_PIXEL / SANDBOX_HEIGHT_GUIDE_STEP_METERS)
+          * SANDBOX_HEIGHT_GUIDE_STEP_METERS;
+        ctx.save();
+        ctx.strokeStyle = rgbaFromHex(cssColor("--axis"), 0.2);
+        ctx.fillStyle = rgbaFromHex(cssColor("--muted"), 0.8);
+        ctx.lineWidth = 1;
+        ctx.font = "11px system-ui, sans-serif";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+        for (let heightMeters = minHeight; heightMeters <= maxHeight; heightMeters += SANDBOX_HEIGHT_GUIDE_STEP_METERS) {
+          const y = seaLevelY - heightMeters / SANDBOX_METERS_PER_PIXEL;
+          if (y < 12 || y > height - 4) continue;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(width, y);
+          ctx.stroke();
+          ctx.fillText(`${heightMeters.toLocaleString("ko-KR")} m`, width - 10, y - 4);
+        }
+        ctx.restore();
       }
 
       function geoidOffset(x, width) {
@@ -1572,8 +1601,7 @@
       }
 
       function terrainBaseY() {
-        const { height } = screenSize();
-        return state.view.offsetY + Math.min(132, height * 0.3);
+        return state.view.offsetY - SANDBOX_DEFAULT_TERRAIN_HEIGHT_METERS / SANDBOX_METERS_PER_PIXEL;
       }
 
       function terrainYAt(x) {
