@@ -1122,17 +1122,12 @@
         const axisColor = cssColor("--axis");
         const minPx = 54;
         const step = niceStep(minPx / state.view.scale);
-        if (verticalProjection() < 0.15) {
-          drawSideViewGrid(step, width, height, gridColor, strongGridColor, axisColor);
-          return;
-        }
         const minorStep = step / 5;
-        const topLeft = screenToWorld({ x: 0, y: 0 });
-        const bottomRight = screenToWorld({ x: width, y: height });
-        const minX = Math.min(topLeft.x, bottomRight.x);
-        const maxX = Math.max(topLeft.x, bottomRight.x);
-        const minY = Math.min(topLeft.y, bottomRight.y);
-        const maxY = Math.max(topLeft.y, bottomRight.y);
+        const minX = (0 - state.view.offsetX) / state.view.scale;
+        const maxX = (width - state.view.offsetX) / state.view.scale;
+        // Keep the same plane bounds while it rotates, rather than stretching its grid to fill the canvas.
+        const minY = (state.view.offsetY - height) / state.view.scale;
+        const maxY = state.view.offsetY / state.view.scale;
 
         ctx.lineWidth = 1;
         ctx.strokeStyle = rgbaFromHex(gridColor, 0.55);
@@ -1145,48 +1140,12 @@
         ctx.lineWidth = 1.5;
         const xAxis = worldToScreen({ x: 0, y: 0 }).y;
         const yAxis = worldToScreen({ x: 0, y: 0 }).x;
+        const planeTop = worldToScreen({ x: 0, y: maxY }).y;
+        const planeBottom = worldToScreen({ x: 0, y: minY }).y;
         if (xAxis >= 0 && xAxis <= height) drawLine({ x: 0, y: xAxis }, { x: width, y: xAxis });
-        if (yAxis >= 0 && yAxis <= width) drawLine({ x: yAxis, y: 0 }, { x: yAxis, y: height });
+        if (yAxis >= 0 && yAxis <= width) drawLine({ x: yAxis, y: planeTop }, { x: yAxis, y: planeBottom });
 
         drawAxisLabels(minX, maxX, minY, maxY, step, width, height);
-      }
-
-      function drawSideViewGrid(step, width, height, gridColor, strongGridColor, axisColor) {
-        const minX = (0 - state.view.offsetX) / state.view.scale;
-        const maxX = (width - state.view.offsetX) / state.view.scale;
-        const drawVerticalLines = (interval, color, lineWidth) => {
-          ctx.strokeStyle = color;
-          ctx.lineWidth = lineWidth;
-          const startX = Math.floor(minX / interval) * interval;
-          const endX = Math.ceil(maxX / interval) * interval;
-          for (let x = startX; x <= endX + interval * 0.5; x += interval) {
-            const screen = worldToScreen({ x, y: 0 });
-            drawLine({ x: screen.x, y: 0 }, { x: screen.x, y: height });
-          }
-        };
-        drawVerticalLines(step / 5, rgbaFromHex(gridColor, 0.55), 1);
-        drawVerticalLines(step, strongGridColor, 1);
-
-        const xAxisY = worldToScreen({ x: 0, y: 0 }).y;
-        ctx.strokeStyle = axisColor;
-        ctx.lineWidth = 1.5;
-        if (xAxisY >= 0 && xAxisY <= height) drawLine({ x: 0, y: xAxisY }, { x: width, y: xAxisY });
-
-        ctx.fillStyle = axisColor;
-        ctx.font = "12px system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        const labelY = clamp(xAxisY + 12, 16, height - 6);
-        const startX = Math.floor(minX / step) * step;
-        const endX = Math.ceil(maxX / step) * step;
-        for (let x = startX; x <= endX + step * 0.5; x += step) {
-          if (Math.abs(x) < step * 0.001) continue;
-          const screen = worldToScreen({ x, y: 0 });
-          if (screen.x >= 4 && screen.x <= width - 24) ctx.fillText(formatGridNumber(x), screen.x, labelY);
-        }
-        ctx.fillStyle = cssColor("--muted");
-        ctx.textAlign = "left";
-        ctx.fillText(`1칸 = ${formatGridNumber(step)}`, 12, 18);
       }
 
       function drawGridLines(minX, maxX, minY, maxY, step, width, height) {
@@ -1194,10 +1153,12 @@
         const endX = Math.ceil(maxX / step) * step;
         const startY = Math.floor(minY / step) * step;
         const endY = Math.ceil(maxY / step) * step;
+        const planeTop = worldToScreen({ x: 0, y: maxY }).y;
+        const planeBottom = worldToScreen({ x: 0, y: minY }).y;
 
         for (let x = startX; x <= endX + step * 0.5; x += step) {
           const screen = worldToScreen({ x, y: 0 });
-          drawLine({ x: screen.x, y: 0 }, { x: screen.x, y: height });
+          drawLine({ x: screen.x, y: planeTop }, { x: screen.x, y: planeBottom });
         }
 
         for (let y = startY; y <= endY + step * 0.5; y += step) {
@@ -1226,12 +1187,16 @@
 
         const startY = Math.floor(minY / step) * step;
         const endY = Math.ceil(maxY / step) * step;
-        for (let y = startY; y <= endY + step * 0.5; y += step) {
-          if (Math.abs(y) < step * 0.001) continue;
-          const screen = worldToScreen({ x: 0, y });
-          if (screen.y < 10 || screen.y > height - 10) continue;
-          ctx.textAlign = "left";
-          ctx.fillText(formatGridNumber(y), yAxisX + 6, screen.y);
+        if (verticalProjection() > 0.12) {
+          ctx.globalAlpha = verticalProjection();
+          for (let y = startY; y <= endY + step * 0.5; y += step) {
+            if (Math.abs(y) < step * 0.001) continue;
+            const screen = worldToScreen({ x: 0, y });
+            if (screen.y < 10 || screen.y > height - 10) continue;
+            ctx.textAlign = "left";
+            ctx.fillText(formatGridNumber(y), yAxisX + 6, screen.y);
+          }
+          ctx.globalAlpha = 1;
         }
 
         ctx.fillStyle = cssColor("--muted");
