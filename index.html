@@ -271,31 +271,6 @@
       gap: 8px;
     }
 
-    .correction-list {
-      display: grid;
-      gap: 7px;
-      margin: 0;
-      padding: 0;
-      border: 0;
-    }
-
-    .correction-option {
-      display: flex;
-      align-items: center;
-      min-height: 28px;
-      gap: 8px;
-      color: var(--text);
-      font-size: 13px;
-      cursor: pointer;
-    }
-
-    .correction-option input {
-      width: 16px;
-      height: 16px;
-      margin: 0;
-      accent-color: var(--amber);
-    }
-
     .sandbox-tool {
       display: flex;
       align-items: center;
@@ -675,11 +650,6 @@
         </section>
         <section class="sandbox-panel" aria-label="지오이드 샌드박스">
           <h2 class="panel-title">지오이드</h2>
-          <fieldset class="correction-list" aria-label="중력 보정">
-            <label class="correction-option"><input type="checkbox" data-correction="freeAir" checked>프리에어 보정</label>
-            <label class="correction-option"><input type="checkbox" data-correction="bouguer" checked>부게 보정</label>
-            <label class="correction-option"><input type="checkbox" data-correction="terrain" checked>지형 보정</label>
-          </fieldset>
           <div class="sandbox-tools" aria-label="샌드박스 도구">
             <button class="sandbox-tool" type="button" data-sandbox-tool="pen" aria-pressed="true">펜</button>
             <button class="sandbox-tool" type="button" data-sandbox-tool="dense" aria-pressed="false">고밀도</button>
@@ -732,7 +702,6 @@
       const toolPanelInput = document.getElementById("toolPanelInput");
       const stepItems = Array.from(document.querySelectorAll("[data-step]"));
       const sandboxToolButtons = Array.from(document.querySelectorAll("[data-sandbox-tool]"));
-      const correctionInputs = Array.from(document.querySelectorAll("[data-correction]"));
 
       const state = {
         mode: "move",
@@ -798,11 +767,6 @@
           mass: [],
           densityBlobs: [],
           particles: [],
-          corrections: {
-            freeAir: true,
-            bouguer: true,
-            terrain: true
-          },
           pointer: {
             id: null,
             down: false,
@@ -829,7 +793,6 @@
         state.selectedPointId = null;
         state.measurement = freshMeasurementState();
         state.sandbox = freshSandboxState();
-        updateSandboxCorrections();
         addSegment("A", "B");
         coordinateReadout.textContent = "없음";
         coordinatePopover.hidden = true;
@@ -1154,8 +1117,7 @@
 
       function potentialModelAt(x, screenY, width) {
         const observationHeight = (state.view.offsetY - screenY) * SANDBOX_METERS_PER_PIXEL;
-        const terrainHeight = terrainHeightMetersAt(x);
-        const anomaly = correctedAnomalyMgal(x, observationHeight, terrainHeight, width);
+        const anomaly = sourceGravityAnomalyMgal(x, width);
         const stokesUndulation = stokesUndulationMeters(x, width);
         const radius = Math.max(1, EARTH_REFERENCE_RADIUS_METERS + observationHeight);
         const normalPotential = -EARTH_GM / radius;
@@ -1487,37 +1449,22 @@
       }
 
       function stokesUndulationMeters(x, width) {
-        const terrainHeight = terrainHeightMetersAt(x);
-        const anomaly = correctedAnomalyMgal(x, terrainHeight, terrainHeight, width);
+        const anomaly = sourceGravityAnomalyMgal(x, width);
         // N = R/(4πγ) ∫ Δg S(ψ)dσ. A one-dimensional sandbox cannot supply global data,
         // so its truncated local kernel is represented by a 32 km effective integration radius.
         return anomaly * 1e-5 * STOKES_LOCAL_RADIUS_METERS / (2 * Math.PI * NORMAL_GRAVITY);
       }
 
       function gravityModelAt(x, screenY, width) {
-        const observationHeight = (state.view.offsetY - screenY) * 40;
-        const terrainHeight = terrainHeightMetersAt(x);
-        const anomaly = correctedAnomalyMgal(x, observationHeight, terrainHeight, width);
+        const anomaly = sourceGravityAnomalyMgal(x, width);
         return {
           gravity: NORMAL_GRAVITY + anomaly * 1e-5,
           anomaly
         };
       }
 
-      function correctedAnomalyMgal(x, observationHeight, terrainHeight, width) {
-        const corrections = state.sandbox.corrections;
-        const freeAir = 0.3086 * observationHeight;
-        const bouguer = bouguerCorrectionMgal(terrainHeight);
-        let anomaly = densityAnomalyMgalAt(x, width) - freeAir + bouguer;
-        if (corrections.freeAir) anomaly += freeAir;
-        if (corrections.bouguer) anomaly -= bouguer;
-        if (corrections.terrain) anomaly += terrainCorrectionMgalAt(x, width);
-        return anomaly;
-      }
-
-      function bouguerCorrectionMgal(heightMeters) {
-        const density = heightMeters >= 0 ? 2.67 : 2.67 - 1.03;
-        return 0.0419 * density * heightMeters;
+      function sourceGravityAnomalyMgal(x, width) {
+        return densityAnomalyMgalAt(x, width) + terrainMassAnomalyMgalAt(x);
       }
 
       function densityAnomalyMgalAt(x, width) {
@@ -1534,24 +1481,9 @@
         return weightedMass / Math.max(totalWeight, 1) * 12;
       }
 
-      function terrainCorrectionMgalAt(x, width) {
-        const { terrain } = state.sandbox;
-        if (terrain.length < 2) return 0;
-        const center = Math.round(clamp(x / Math.max(width, 1) * (terrain.length - 1), 0, terrain.length - 1));
-        const centerHeight = terrainHeightMetersAt(x);
-        const sampleWidth = width / Math.max(terrain.length - 1, 1) * 1000;
-        let correction = 0;
-        for (let index = Math.max(0, center - 18); index <= Math.min(terrain.length - 1, center + 18); index += 1) {
-          if (index === center) continue;
-          const neighborX = index / Math.max(terrain.length - 1, 1) * width;
-          const relief = terrainHeightMetersAt(neighborX) - centerHeight;
-          if (Math.abs(relief) < 0.01) continue;
-          const distance = Math.abs(index - center) * sampleWidth;
-          const vertical = Math.max(Math.abs(relief) / 2, 1);
-          const mass = 2670 * sampleWidth * sampleWidth * Math.abs(relief);
-          correction += 6.67430e-11 * mass * vertical / Math.pow(distance * distance + vertical * vertical, 1.5) * 1e5;
-        }
-        return correction;
+      function terrainMassAnomalyMgalAt(x) {
+        const reliefMeters = terrainHeightMetersAt(x) - SANDBOX_DEFAULT_TERRAIN_HEIGHT_METERS;
+        return 0.0419 * 2.67 * reliefMeters;
       }
 
       function drawDensityBlobs(width, height) {
@@ -1629,12 +1561,6 @@
       function updateSandboxToolButtons() {
         for (const button of sandboxToolButtons) {
           button.setAttribute("aria-pressed", String(button.dataset.sandboxTool === state.sandbox.tool));
-        }
-      }
-
-      function updateSandboxCorrections() {
-        for (const input of correctionInputs) {
-          input.checked = state.sandbox.corrections[input.dataset.correction];
         }
       }
 
@@ -2481,13 +2407,6 @@
       toolPanelInput.addEventListener("blur", submitToolTitle);
       sandboxToolButtons.forEach((button) => {
         button.addEventListener("click", () => setSandboxTool(button.dataset.sandboxTool));
-      });
-      correctionInputs.forEach((input) => {
-        input.addEventListener("change", () => {
-          state.sandbox.corrections[input.dataset.correction] = input.checked;
-          updateStatus("중력 보정 변경");
-          draw();
-        });
       });
       fitViewButton.addEventListener("click", resetViewAndDraw);
       clearMapButton.addEventListener("click", resetConstruction);
