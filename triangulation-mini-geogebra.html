@@ -507,6 +507,10 @@
           <div class="coordinate-popover-label" id="measurementLabel">측정값</div>
           <div class="coordinate-popover-value" id="measurementReadout">없음</div>
         </div>
+        <div class="coordinate-popover measurement-popover" id="potentialPopover" aria-live="polite" hidden>
+          <div class="coordinate-popover-label">중력 퍼텐셜</div>
+          <div class="coordinate-popover-value" id="potentialReadout">없음</div>
+        </div>
         <div class="status-chip" id="statusChip" aria-live="polite">이동 모드</div>
       </section>
 
@@ -567,6 +571,8 @@
       const measurementPopover = document.getElementById("measurementPopover");
       const measurementLabel = document.getElementById("measurementLabel");
       const measurementReadout = document.getElementById("measurementReadout");
+      const potentialPopover = document.getElementById("potentialPopover");
+      const potentialReadout = document.getElementById("potentialReadout");
       const alphaInput = document.getElementById("alphaInput");
       const betaInput = document.getElementById("betaInput");
       const triangleMessage = document.getElementById("triangleMessage");
@@ -585,6 +591,7 @@
         selectedPointId: null,
         measurement: freshMeasurementState(),
         triangle: freshTriangleState(),
+        sideProbe: null,
         view: {
           scale: 100,
           offsetX: 0,
@@ -645,6 +652,7 @@
         coordinateReadout.textContent = "없음";
         coordinatePopover.hidden = true;
         measurementPopover.hidden = true;
+        potentialPopover.hidden = true;
         resetTriangleWorkflow();
         setMode("move");
         fitView();
@@ -924,6 +932,39 @@
         }
       }
 
+      function showPotentialPopover(probe) {
+        potentialReadout.textContent = `Φ = ${probe.potential.toFixed(4)} MJ/kg`;
+        potentialPopover.hidden = false;
+        positionPotentialPopover();
+      }
+
+      function positionPotentialPopover() {
+        if (potentialPopover.hidden || !state.sideProbe) return;
+        positionScreenPopover(potentialPopover, state.sideProbe);
+      }
+
+      function positionScreenPopover(popover, screen) {
+        const { width, height } = screenSize();
+        const panelWidth = popover.offsetWidth;
+        const panelHeight = popover.offsetHeight;
+        const padding = 12;
+        const preferredLeft = screen.x + 28 + panelWidth <= width - padding;
+        popover.style.left = `${clamp(preferredLeft ? screen.x + 28 : screen.x - panelWidth - 28, padding, Math.max(padding, width - panelWidth - padding))}px`;
+        popover.style.top = `${clamp(screen.y - panelHeight - 22, padding, Math.max(padding, height - panelHeight - padding))}px`;
+      }
+
+      function measurePotentialAt(screen) {
+        const { width } = screenSize();
+        const seaLevelY = state.view.offsetY;
+        const geoidY = seaLevelY + geoidOffset(screen.x, width);
+        const heightAboveGeoidMeters = (geoidY - screen.y) * 45;
+        const potential = -62.6 + heightAboveGeoidMeters * 9.80665e-6;
+        state.sideProbe = { x: screen.x, y: screen.y, potential };
+        showPotentialPopover(state.sideProbe);
+        updateStatus("중력 퍼텐셜 표시");
+        draw();
+      }
+
       function formatMeasurement(value) {
         return trimZeros(value.toFixed(6));
       }
@@ -1024,6 +1065,13 @@
       function toggleSideView() {
         const projection = state.projection;
         projection.target = projection.target === 1 ? 0 : 1;
+        state.sideProbe = null;
+        potentialPopover.hidden = true;
+        if (projection.target === 1) {
+          state.selectedPointId = null;
+          coordinatePopover.hidden = true;
+          clearMeasurement(false);
+        }
         if (projection.animationFrame) cancelAnimationFrame(projection.animationFrame);
 
         const start = projection.collapse;
@@ -1041,6 +1089,7 @@
           positionAnglePopovers();
           positionCoordinatePopover();
           positionMeasurementPopover();
+          positionPotentialPopover();
           if (progress < 1) {
             projection.animationFrame = requestAnimationFrame(animate);
           } else {
@@ -1071,6 +1120,14 @@
         const { width, height } = screenSize();
         ctx.clearRect(0, 0, width, height);
 
+        if (isSideView()) {
+          drawSeaLevelScene();
+          drawPotentialProbe();
+          updateCounts();
+          updateDeletePointButton();
+          return;
+        }
+
         drawTriangleFills();
         drawPreviewFill();
         drawGrid();
@@ -1081,6 +1138,56 @@
         drawPreviewPoint();
         updateCounts();
         updateDeletePointButton();
+      }
+
+      function drawSeaLevelScene() {
+        const { width } = screenSize();
+        const seaLevelY = state.view.offsetY;
+
+        ctx.strokeStyle = cssColor("--blue");
+        ctx.lineWidth = 2.2;
+        drawLine({ x: 0, y: seaLevelY }, { x: width, y: seaLevelY });
+
+        ctx.strokeStyle = rgbaFromHex(cssColor("--green"), 0.9);
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        for (let x = 0; x <= width; x += 2) {
+          const y = seaLevelY + geoidOffset(x, width);
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        ctx.font = "12px system-ui, sans-serif";
+        ctx.textBaseline = "bottom";
+        ctx.textAlign = "left";
+        ctx.fillStyle = cssColor("--blue");
+        ctx.fillText("해수면", 12, seaLevelY - 8);
+        ctx.fillStyle = cssColor("--green-deep");
+        ctx.fillText("지오이드", 12, seaLevelY + 30);
+      }
+
+      function geoidOffset(x, width) {
+        const position = x / Math.max(width, 1);
+        return 13 * Math.sin(position * Math.PI * 3 - 0.6) + 5 * Math.sin(position * Math.PI * 7 + 0.8);
+      }
+
+      function drawPotentialProbe() {
+        const probe = state.sideProbe;
+        if (!probe) return;
+        const seaLevelY = state.view.offsetY;
+        ctx.setLineDash([4, 5]);
+        ctx.strokeStyle = rgbaFromHex(cssColor("--amber"), 0.85);
+        ctx.lineWidth = 1.5;
+        drawLine({ x: probe.x, y: probe.y }, { x: probe.x, y: seaLevelY });
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(probe.x, probe.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = cssColor("--amber");
+        ctx.fill();
+        ctx.strokeStyle = cssColor("--surface");
+        ctx.lineWidth = 2;
+        ctx.stroke();
       }
 
       function drawTriangleFills() {
@@ -1452,7 +1559,10 @@
       }
 
       function handlePointerDown(event) {
-        if (isSideView()) return;
+        if (isSideView()) {
+          measurePotentialAt(canvasPoint(event));
+          return;
+        }
         const screen = canvasPoint(event);
         state.pointer.id = event.pointerId;
         state.pointer.startX = screen.x;
@@ -1545,6 +1655,7 @@
         positionAnglePopovers();
         positionCoordinatePopover();
         positionMeasurementPopover();
+        positionPotentialPopover();
         draw();
       }
 
