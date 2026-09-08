@@ -1144,8 +1144,6 @@
         const { width } = screenSize();
         const seaLevelY = state.view.offsetY;
 
-        drawTerrainProfile(width, seaLevelY);
-
         ctx.strokeStyle = cssColor("--blue");
         ctx.lineWidth = 2.2;
         drawLine({ x: 0, y: seaLevelY }, { x: width, y: seaLevelY });
@@ -1165,47 +1163,12 @@
         ctx.textAlign = "left";
         ctx.fillStyle = cssColor("--blue");
         ctx.fillText("해수면", 12, seaLevelY - 8);
-        ctx.fillStyle = cssColor("--green-deep");
-        ctx.fillText("지표면", 12, seaLevelY - 42);
         ctx.fillStyle = cssColor("--amber");
         ctx.fillText("지오이드", 12, seaLevelY + 30);
       }
 
-      function drawTerrainProfile(width, seaLevelY) {
-        const { height } = screenSize();
-        ctx.beginPath();
-        for (let x = 0; x <= width; x += 2) {
-          const y = seaLevelY - terrainElevation(x, width);
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.lineTo(width, height);
-        ctx.lineTo(0, height);
-        ctx.closePath();
-        ctx.fillStyle = rgbaFromHex(cssColor("--green-deep"), 0.2);
-        ctx.fill();
-
-        ctx.beginPath();
-        for (let x = 0; x <= width; x += 2) {
-          const y = seaLevelY - terrainElevation(x, width);
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = cssColor("--green-deep");
-        ctx.lineWidth = 3;
-        ctx.stroke();
-      }
-
-      function terrainElevation(x, width) {
-        const position = x / Math.max(width, 1);
-        return 27 * Math.sin(position * Math.PI * 2.2 - 0.9)
-          + 15 * Math.sin(position * Math.PI * 5.4 + 0.5)
-          - 5;
-      }
-
       function geoidOffset(x, width) {
-        const position = x / Math.max(width, 1);
-        return 13 * Math.sin(position * Math.PI * 3 - 0.6) + 5 * Math.sin(position * Math.PI * 7 + 0.8);
+        return 20;
       }
 
       function drawPotentialProbe() {
