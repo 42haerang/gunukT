@@ -1521,7 +1521,7 @@
         const radius = 14;
         for (let index = Math.max(0, center - radius); index <= Math.min(sandbox.terrain.length - 1, center + radius); index += 1) {
           const weight = Math.max(0, 1 - Math.abs(index - center) / (radius + 1));
-          sandbox.terrain[index] *= 1 - weight * 0.12;
+          sandbox.terrain[index] -= weight * 1.45;
           sandbox.mass[index] *= 1 - weight * 0.18;
         }
         sandbox.densityBlobs = sandbox.densityBlobs.filter((blob) => Math.abs(blob.position * width - x) > blob.radius + 18);
