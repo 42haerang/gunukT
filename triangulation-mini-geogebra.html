@@ -591,6 +591,11 @@
           offsetY: 0,
           initialized: false
         },
+        projection: {
+          collapse: 0,
+          target: 0,
+          animationFrame: null
+        },
         pointer: {
           id: null,
           dragging: false,
@@ -997,15 +1002,54 @@
       function worldToScreen(point) {
         return {
           x: point.x * state.view.scale + state.view.offsetX,
-          y: state.view.offsetY - point.y * state.view.scale
+          y: state.view.offsetY - point.y * state.view.scale * verticalProjection()
         };
       }
 
       function screenToWorld(point) {
         return {
           x: (point.x - state.view.offsetX) / state.view.scale,
-          y: (state.view.offsetY - point.y) / state.view.scale
+          y: (state.view.offsetY - point.y) / (state.view.scale * Math.max(verticalProjection(), 0.001))
         };
+      }
+
+      function verticalProjection() {
+        return 1 - state.projection.collapse;
+      }
+
+      function isSideView() {
+        return state.projection.collapse >= 0.98;
+      }
+
+      function toggleSideView() {
+        const projection = state.projection;
+        projection.target = projection.target === 1 ? 0 : 1;
+        if (projection.animationFrame) cancelAnimationFrame(projection.animationFrame);
+
+        const start = projection.collapse;
+        const change = projection.target - start;
+        const duration = 620;
+        const startedAt = performance.now();
+        const easeInOut = (value) => value < 0.5
+          ? 4 * value * value * value
+          : 1 - Math.pow(-2 * value + 2, 3) / 2;
+
+        const animate = (now) => {
+          const progress = Math.min(1, (now - startedAt) / duration);
+          projection.collapse = start + change * easeInOut(progress);
+          draw();
+          positionAnglePopovers();
+          positionCoordinatePopover();
+          positionMeasurementPopover();
+          if (progress < 1) {
+            projection.animationFrame = requestAnimationFrame(animate);
+          } else {
+            projection.collapse = projection.target;
+            projection.animationFrame = null;
+            draw();
+          }
+        };
+        projection.animationFrame = requestAnimationFrame(animate);
       }
 
       function cssColor(name) {
@@ -1078,6 +1122,10 @@
         const axisColor = cssColor("--axis");
         const minPx = 54;
         const step = niceStep(minPx / state.view.scale);
+        if (verticalProjection() < 0.15) {
+          drawSideViewGrid(step, width, height, gridColor, strongGridColor, axisColor);
+          return;
+        }
         const minorStep = step / 5;
         const topLeft = screenToWorld({ x: 0, y: 0 });
         const bottomRight = screenToWorld({ x: width, y: height });
@@ -1101,6 +1149,44 @@
         if (yAxis >= 0 && yAxis <= width) drawLine({ x: yAxis, y: 0 }, { x: yAxis, y: height });
 
         drawAxisLabels(minX, maxX, minY, maxY, step, width, height);
+      }
+
+      function drawSideViewGrid(step, width, height, gridColor, strongGridColor, axisColor) {
+        const minX = (0 - state.view.offsetX) / state.view.scale;
+        const maxX = (width - state.view.offsetX) / state.view.scale;
+        const drawVerticalLines = (interval, color, lineWidth) => {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = lineWidth;
+          const startX = Math.floor(minX / interval) * interval;
+          const endX = Math.ceil(maxX / interval) * interval;
+          for (let x = startX; x <= endX + interval * 0.5; x += interval) {
+            const screen = worldToScreen({ x, y: 0 });
+            drawLine({ x: screen.x, y: 0 }, { x: screen.x, y: height });
+          }
+        };
+        drawVerticalLines(step / 5, rgbaFromHex(gridColor, 0.55), 1);
+        drawVerticalLines(step, strongGridColor, 1);
+
+        const xAxisY = worldToScreen({ x: 0, y: 0 }).y;
+        ctx.strokeStyle = axisColor;
+        ctx.lineWidth = 1.5;
+        if (xAxisY >= 0 && xAxisY <= height) drawLine({ x: 0, y: xAxisY }, { x: width, y: xAxisY });
+
+        ctx.fillStyle = axisColor;
+        ctx.font = "12px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const labelY = clamp(xAxisY + 12, 16, height - 6);
+        const startX = Math.floor(minX / step) * step;
+        const endX = Math.ceil(maxX / step) * step;
+        for (let x = startX; x <= endX + step * 0.5; x += step) {
+          if (Math.abs(x) < step * 0.001) continue;
+          const screen = worldToScreen({ x, y: 0 });
+          if (screen.x >= 4 && screen.x <= width - 24) ctx.fillText(formatGridNumber(x), screen.x, labelY);
+        }
+        ctx.fillStyle = cssColor("--muted");
+        ctx.textAlign = "left";
+        ctx.fillText(`1칸 = ${formatGridNumber(step)}`, 12, 18);
       }
 
       function drawGridLines(minX, maxX, minY, maxY, step, width, height) {
@@ -1401,6 +1487,7 @@
       }
 
       function handlePointerDown(event) {
+        if (isSideView()) return;
         const screen = canvasPoint(event);
         state.pointer.id = event.pointerId;
         state.pointer.startX = screen.x;
@@ -1431,6 +1518,7 @@
       }
 
       function handlePointerMove(event) {
+        if (isSideView()) return;
         const screen = canvasPoint(event);
         state.lastMouseWorld = screenToWorld(screen);
 
@@ -1466,18 +1554,21 @@
       }
 
       function handleCanvasDoubleClick(event) {
+        if (isSideView()) return;
         if (state.mode !== "move") return;
         const point = hitPoint(canvasPoint(event));
         if (point) beginLengthMeasurement(point);
       }
 
       function handleCanvasClick(event) {
+        if (isSideView()) return;
         if (state.mode !== "move" || event.detail !== 3) return;
         const point = hitPoint(canvasPoint(event));
         if (point) beginAngleMeasurement(point);
       }
 
       function handleWheel(event) {
+        if (isSideView()) return;
         event.preventDefault();
         const screen = canvasPoint(event);
         const before = screenToWorld(screen);
@@ -1703,7 +1794,20 @@
       canvas.addEventListener("wheel", handleWheel, { passive: false });
       window.addEventListener("resize", resizeCanvas);
       window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+      const yKeyPresses = [];
       window.addEventListener("keydown", (event) => {
+        const isProjectionKey = event.key.toLowerCase() === "y" || event.key === "ㅛ" || event.code === "KeyY";
+        if (isProjectionKey && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault();
+          const now = performance.now();
+          yKeyPresses.push(now);
+          while (yKeyPresses.length && now - yKeyPresses[0] > 800) yKeyPresses.shift();
+          if (yKeyPresses.length >= 3) {
+            yKeyPresses.length = 0;
+            toggleSideView();
+          }
+          return;
+        }
         if ((event.key === "Backspace" || event.key === "Delete") && state.mode === "move" && state.selectedPointId) {
           event.preventDefault();
           deleteSelectedPoint();
