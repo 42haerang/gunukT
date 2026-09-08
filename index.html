@@ -1330,7 +1330,8 @@
       function drawDensityTerrainFill(width) {
         const { mass } = state.sandbox;
         if (mass.length < 2) return;
-        const baseline = terrainBaseY();
+        const { height } = screenSize();
+        const bottom = Math.min(height, terrainBaseY() + 92);
         const sliceWidth = width / (mass.length - 1);
         for (let index = 0; index < mass.length - 1; index += 1) {
           const value = (mass[index] + mass[index + 1]) / 2;
@@ -1340,8 +1341,8 @@
           ctx.beginPath();
           ctx.moveTo(x, terrainYAt(x));
           ctx.lineTo(nextX, terrainYAt(nextX));
-          ctx.lineTo(nextX, baseline);
-          ctx.lineTo(x, baseline);
+          ctx.lineTo(nextX, bottom);
+          ctx.lineTo(x, bottom);
           ctx.closePath();
           const color = value > 0 ? cssColor("--dense") : cssColor("--light");
           ctx.fillStyle = rgbaFromHex(color, Math.min(0.5, 0.12 + Math.abs(value) * 0.12));
